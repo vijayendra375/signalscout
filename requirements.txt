@@ -1,0 +1,8 @@
+# SignalScout runtime dependencies (pinned for reproducible evaluation).
+# Verified working on Python 3.14; compatible with Python 3.10+.
+beautifulsoup4==4.15.0
+lxml==6.1.3
+pydantic==2.13.3
+pypdf==6.20.0
+requests==2.33.1
+trafilatura==2.3.1

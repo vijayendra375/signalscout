@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "signalscout"
+version = "1.0.0"
+description = "SignalScout — evidence-backed Norwegian company intelligence agent (Builderr Signalpost)."
+requires-python = ">=3.10"
+dependencies = [
+  "beautifulsoup4==4.15.0",
+  "lxml==6.1.3",
+  "pydantic==2.13.3",
+  "pypdf==6.20.0",
+  "requests==2.33.1",
+  "trafilatura==2.3.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==9.1.1"]
+
+[tool.setuptools]
+packages = [
+  "app",
+  "app.budget",
+  "app.config",
+  "app.documents",
+  "app.evidence",
+  "app.extraction",
+  "app.fetching",
+  "app.identity",
+  "app.llm",
+  "app.orchestrator",
+  "app.output",
+  "app.sources",
+  "app.storage",
+  "app.synthesis",
+  "app.temporal",
+  "app.ui",
+  "app.verification",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"
