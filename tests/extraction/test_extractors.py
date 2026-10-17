@@ -11,22 +11,62 @@ def test_company_record_extraction():
         "organisasjonsnummer": "923609016",
         "navn": "EQUINOR ASA",
         "organisasjonsform": {"kode": "ASA", "beskrivelse": "Allment aksjeselskap"},
-        "forretningsadresse": {"adresse": ["Forusbeen 50"], "postnummer": "4035", "kommune": "STAVANGER"},
+        "forretningsadresse": {"adresse": ["Forusbeen 50"], "postnummer": "4035", "kommune": "STAVANGER",
+                               "poststed": "STAVANGER", "kommunenummer": "4203", "landkode": "NO"},
         "naeringskode1": {"kode": "06.100", "beskrivelse": "Utvinning av råolje"},
+        "naeringskode2": {"kode": "20.100", "beskrivelse": "Kjemikalier"},
+        "naeringskode3": None,
         "antallAnsatte": 21000,
+        "harRegistrertAntallAnsatte": True,
         "registreringsdatoEnhetsregisteret": "1972-09-18",
+        "stiftelsesdato": "1972-06-01",
+        "mobil": None,
+        "epostadresse": None,
+        "kapital": {"belop": 500000.0, "valuta": "NOK"},
+        "sisteInnsendteAarsregnskap": 2023,
+        "registrertIMvaregisteret": True,
+        "registrertIForetaksregisteret": True,
+        "registrertIFrivillighetsregisteret": False,
         "konkurs": False,
+        "underAvvikling": False,
+        "underTvangsavviklingEllerTvangsopplosning": False,
     }
     claims = extract_company_record(raw_entity, "ev-1")
     claim_dict = {c.field: c.value for c in claims}
-    
+    avail_dict = {c.field: c.availability for c in claims}
+
     assert claim_dict["legal_name"] == "EQUINOR ASA"
     assert claim_dict["organisation_form"] == "ASA"
+    assert claim_dict["organisation_form_description"] == "Allment aksjeselskap"
     assert claim_dict["registered_office"] == "Forusbeen 50"
+    assert claim_dict["postal_code"] == "4035"
+    assert claim_dict["post_town"] == "STAVANGER"
     assert claim_dict["municipality"] == "STAVANGER"
+    assert claim_dict["municipality_number"] == "4203"
+    assert claim_dict["country"] == "NO"
     assert claim_dict["industry_code"] == "06.100"
+    assert claim_dict["naeringskode_2"] == "20.100"
+    assert claim_dict["naeringskode_3"] is None
+    assert avail_dict["naeringskode_2"] == "available"
+    assert avail_dict["naeringskode_3"] == "not_available"
     assert claim_dict["registered_employees"] == 21000
+    assert claim_dict["employees_registered"] is True
+    assert claim_dict["founding_date"] == "1972-06-01"
+    assert claim_dict["registration_date"] == "1972-09-18"
+    assert claim_dict["share_capital"] == 500000.0
+    assert claim_dict["share_capital_currency"] == "NOK"
+    assert claim_dict["last_accounts_year"] == 2023
+    assert claim_dict["vat_registered"] is True
+    assert claim_dict["registered_in_foretaksregisteret"] is True
+    assert claim_dict["registered_in_voluntary_register"] is False
     assert claim_dict["adverse_status"] is False
+
+
+def test_company_record_missing_entity_is_not_available():
+    claims = extract_company_record(None, None)
+    by = {c.field: c.availability for c in claims}
+    for f in ["legal_name", "industry_code", "share_capital", "vat_registered", "adverse_status"]:
+        assert by[f] == "not_available", f"{f} should be not_available when entity is missing"
 
 
 def test_financials_extraction_with_data():
@@ -42,11 +82,15 @@ def test_financials_extraction_with_data():
                     "driftsresultat": 350000000,
                 },
                 "aarsresultat": 250000000,
+                "ordinaertResultatFoerSkattekostnad": 300000000,
             },
-            "eiendeler": {"sumEiendeler": 5000000000},
+            "eiendeler": {"sumEiendeler": 5000000000, "sumBankinnskuddOgKontanter": 100000000,
+                          "sumFordringer": 200000000, "omloepsmidler": {"sumOmloepsmidler": 400000000},
+                          "anleggsmidler": {"sumAnleggsmidler": 4600000000}},
             "egenkapitalGjeld": {
                 "egenkapital": {"sumEgenkapital": 2000000000},
-                "gjeldOversikt": {"sumGjeld": 3000000000},
+                "gjeldOversikt": {"sumGjeld": 3000000000, "kortsiktigGjeld": {"sumKortsiktigGjeld": 800000000},
+                                  "langsiktigGjeld": {"sumLangsiktigGjeld": 2200000000}},
             },
         }
     ]
@@ -55,11 +99,26 @@ def test_financials_extraction_with_data():
     avail_dict = {c.field: c.availability for c in claims}
 
     assert claim_dict["latest_revenue"] == 1200000000.0
-    assert avail_dict["latest_revenue"] == AvailabilityState.AVAILABLE
     assert claim_dict["latest_operating_result"] == 350000000.0
+    assert claim_dict["latest_result_before_tax"] == 300000000.0
     assert claim_dict["latest_annual_result"] == 250000000.0
     assert claim_dict["latest_total_assets"] == 5000000000.0
+    assert claim_dict["latest_total_equity"] == 2000000000.0
+    assert claim_dict["latest_total_debt"] == 3000000000.0
+    assert claim_dict["latest_cash"] == 100000000.0
+    assert claim_dict["latest_receivables"] == 200000000.0
+    assert claim_dict["latest_current_assets"] == 400000000.0
+    assert claim_dict["latest_fixed_assets"] == 4600000000.0
+    assert claim_dict["latest_short_term_debt"] == 800000000.0
+    assert claim_dict["latest_long_term_debt"] == 2200000000.0
     assert claim_dict["financial_currency"] == "NOK"
+    assert claim_dict["financial_records"] is not None
+    assert avail_dict["financial_currency"] == "available"
+    assert claim_dict["latest_reporting_period"] == {"fraDato": "2024-01-01", "tilDato": "2024-12-31"}
+
+    # Reporting year preserved on each record.
+    years = [r["year"] for r in claim_dict["financial_records"]]
+    assert years[0] == 2024
 
 
 def test_financials_non_zero_rule_enforcement():

@@ -23,8 +23,11 @@ def extract_financials(raw_accounts: Optional[list[dict[str, Any]]], evidence_id
     if not raw_accounts:
         fields = [
             "financial_records", "latest_revenue", "latest_operating_result",
-            "latest_annual_result", "latest_total_assets", "latest_total_equity",
-            "latest_total_debt", "financial_currency", "latest_reporting_period"
+            "latest_annual_result", "latest_result_before_tax",
+            "latest_total_assets", "latest_total_equity", "latest_total_debt",
+            "latest_cash", "latest_receivables", "latest_current_assets",
+            "latest_fixed_assets", "latest_short_term_debt", "latest_long_term_debt",
+            "financial_currency", "latest_reporting_period"
         ]
         for f in fields:
             claims.append(create_claim_record(f, None, []))
@@ -60,9 +63,16 @@ def extract_financials(raw_accounts: Optional[list[dict[str, Any]]], evidence_id
             "revenue": normalize_metric(rev),
             "operating_result": normalize_metric(op_res),
             "annual_result": normalize_metric(ann_res),
+            "result_before_tax": normalize_metric(_get_nested(item, "resultatregnskapResultat", "ordinaertResultatFoerSkattekostnad")),
             "total_assets": normalize_metric(assets),
             "total_equity": normalize_metric(equity),
             "total_debt": normalize_metric(debt),
+            "cash": normalize_metric(_get_nested(item, "eiendeler", "sumBankinnskuddOgKontanter")),
+            "receivables": normalize_metric(_get_nested(item, "eiendeler", "sumFordringer")),
+            "current_assets": normalize_metric(_get_nested(item, "eiendeler", "omloepsmidler", "sumOmloepsmidler")),
+            "fixed_assets": normalize_metric(_get_nested(item, "eiendeler", "anleggsmidler", "sumAnleggsmidler")),
+            "short_term_debt": normalize_metric(_get_nested(item, "egenkapitalGjeld", "gjeldOversikt", "kortsiktigGjeld", "sumKortsiktigGjeld")),
+            "long_term_debt": normalize_metric(_get_nested(item, "egenkapitalGjeld", "gjeldOversikt", "langsiktigGjeld", "sumLangsiktigGjeld")),
         })
 
     # Summary claims from latest statement
@@ -71,9 +81,16 @@ def extract_financials(raw_accounts: Optional[list[dict[str, Any]]], evidence_id
     claims.append(create_claim_record("latest_revenue", latest.get("revenue"), eids))
     claims.append(create_claim_record("latest_operating_result", latest.get("operating_result"), eids))
     claims.append(create_claim_record("latest_annual_result", latest.get("annual_result"), eids))
+    claims.append(create_claim_record("latest_result_before_tax", latest.get("result_before_tax"), eids))
     claims.append(create_claim_record("latest_total_assets", latest.get("total_assets"), eids))
     claims.append(create_claim_record("latest_total_equity", latest.get("total_equity"), eids))
     claims.append(create_claim_record("latest_total_debt", latest.get("total_debt"), eids))
+    claims.append(create_claim_record("latest_cash", latest.get("cash"), eids))
+    claims.append(create_claim_record("latest_receivables", latest.get("receivables"), eids))
+    claims.append(create_claim_record("latest_current_assets", latest.get("current_assets"), eids))
+    claims.append(create_claim_record("latest_fixed_assets", latest.get("fixed_assets"), eids))
+    claims.append(create_claim_record("latest_short_term_debt", latest.get("short_term_debt"), eids))
+    claims.append(create_claim_record("latest_long_term_debt", latest.get("long_term_debt"), eids))
     claims.append(create_claim_record("financial_currency", latest.get("currency") or "NOK", eids))
     claims.append(create_claim_record("latest_reporting_period", latest.get("period") or None, eids))
 

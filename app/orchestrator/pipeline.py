@@ -6,6 +6,7 @@ import time
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
+from app.budget.request_budget import RequestBudget
 from app.budget.tracker import BudgetTracker
 from app.evidence.store import EvidenceStore, utc_now
 from app.extraction.company_record import extract_company_record
@@ -37,12 +38,14 @@ class CompanyPipeline:
         http_client: Optional[SafeHttpClient] = None,
         db: Optional[StorageDB] = None,
         budget_tracker: Optional[BudgetTracker] = None,
+        request_budget: Optional[RequestBudget] = None,
     ) -> None:
         self.http_client = http_client or SafeHttpClient()
         self.brreg = BrregAdapter(self.http_client)
         self.website_extractor = WebsiteExtractor(self.http_client)
         self.db = db
         self.budget = budget_tracker
+        self.request_budget = request_budget
         self.provider = get_provider()
 
     def research_company(self, org_input: str, run_id: str = "run-1") -> TerminalEnvelope:
@@ -68,13 +71,23 @@ class CompanyPipeline:
 
         requests_count = 0
 
-        # 2. Official Foundation (Brreg) — reset the measured request counter first.
+        # 2. Official Foundation (Brreg) — mark the per-company budget scope and
+        #    reset the measured request counter first.
+        if self.request_budget is not None:
+            self.request_budget.start_company(org)
         self.http_client.start_request_count()
+
+        # Priority order protects identity + financials first, then people, then
+        # optional sources (group structure, website) that the budget may skip.
         raw_entity, entity_ev_id = self.brreg.fetch_entity(org, evidence_store)
-        raw_roles, roles_ev_id = self.brreg.fetch_roles(org, evidence_store)
         raw_financials, financials_ev_id = self.brreg.fetch_financials(org, evidence_store)
+        raw_roles, roles_ev_id = self.brreg.fetch_roles(org, evidence_store)
         raw_subunits, subunits_ev_id = self.brreg.fetch_subunits(org, evidence_store)
-        raw_group, group_ev_id = self.brreg.fetch_group_structure(org, evidence_store)
+
+        # Group structure is optional and only meaningful for group members.
+        raw_group, group_ev_id = None, None
+        if bool((raw_entity or {}).get("erIKonsern")):
+            raw_group, group_ev_id = self.brreg.fetch_group_structure(org, evidence_store)
 
         if raw_entity is None:
             # Valid organisation number, but the primary registry record could not
@@ -125,6 +138,14 @@ class CompanyPipeline:
         )
 
         requests_count = self.http_client.request_count()
+
+        denied = getattr(self.http_client, "budget_denied_count", lambda: 0)()
+        if denied > 0:
+            errors.append(ErrorRecord(
+                code="REQUEST_BUDGET_EXHAUSTED",
+                message="One or more optional sources were skipped because the request/time budget was exhausted.",
+                timestamp=utc_now(),
+            ))
 
         # 6. Temporal change detection
         prior_claims = {}

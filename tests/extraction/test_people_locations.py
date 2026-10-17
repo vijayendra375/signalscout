@@ -39,6 +39,27 @@ def test_slektsnavn_fallback_still_works():
     assert by["managing_director"] == "Kari Nordmann"
 
 
+def test_avregistrert_role_is_treated_as_inactive():
+    # Brreg marks a past role holder with "avregistrert": true; they must not be
+    # presented as a current office holder.
+    raw_roles = [
+        {"type": {"kode": "DAGL", "beskrivelse": "Daglig leder"}, "roller": [
+            {"type": {"kode": "DAGL", "beskrivelse": "Daglig leder"},
+             "person": {"navn": {"fornavn": "Gamle", "etternavn": "Ledelsen"}},
+             "avregistrert": True},
+            {"type": {"kode": "DAGL", "beskrivelse": "Daglig leder"},
+             "person": {"navn": {"fornavn": "Ny", "etternavn": "Ledelsen"}},
+             "avregistrert": False},
+        ]},
+    ]
+    claims = extract_people_and_locations(raw_roles, "ev-r", [], "ev-s")
+    by = {c.field: c.value for c in claims}
+    assert by["managing_director"] == "Ny Ledelsen"
+    roles = by["all_roles"]
+    assert any(r["name"] == "Gamle Ledelsen" and r["inactive"] for r in roles)
+    assert any(r["name"] == "Ny Ledelsen" and not r["inactive"] for r in roles)
+
+
 def test_html_parser_extracts_contact_details():
     html = (
         "<html><body>"

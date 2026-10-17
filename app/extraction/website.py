@@ -21,7 +21,7 @@ from app.fetching.http_client import SafeHttpClient, FetchResult
 from app.fetching.robots import RobotsGate
 from app.identity.firewall import IdentityFirewall, IdentityDecision
 from app.extraction.activity import extract_hiring_and_activity
-from app.output.models import Claim, SourceClass
+from app.output.models import AvailabilityState, Claim, SourceClass
 from app.verification.validator import create_claim_record
 
 
@@ -58,6 +58,19 @@ class WebsiteExtractor:
         activity = extract_hiring_and_activity(None) if with_activity else []
         return WebsiteResearch(claims=claims, activity_claims=activity)
 
+    def _blocked(self) -> WebsiteResearch:
+        """Website work was prevented by the request/time budget, not by the source."""
+        website_fields = [
+            "official_website", "website_title", "website_description",
+            "social_profiles", "contact_email", "contact_phone", "website_pages_crawled",
+        ]
+        claims = [create_claim_record(f, None, [], forced_availability=AvailabilityState.BLOCKED) for f in website_fields]
+        activity = [
+            create_claim_record(f, None, [], forced_availability=AvailabilityState.BLOCKED)
+            for f in ["hiring_active", "job_postings", "public_activities"]
+        ]
+        return WebsiteResearch(claims=claims, activity_claims=activity)
+
     def _same_site(self, official_url: str, candidate_url: str) -> bool:
         a = urlparse(official_url).netloc.lower().lstrip("www.")
         b = urlparse(candidate_url).netloc.lower().lstrip("www.")
@@ -92,15 +105,19 @@ class WebsiteExtractor:
                 seen.add(norm)
                 candidates.append(url)
 
-        for path in SECTION_PATHS:
-            add(urljoin(base_url, path))
-
+        # Discovered links (from the homepage and sitemap) are tried first because
+        # they are evidence-based and far more likely to exist than generic section
+        # paths. Generic SECTION_PATHS are a last-resort fallback so a site full of
+        # 404s cannot burn the attempt budget before reaching real pages.
         for link in homepage.internal_links:
             if SECTION_KEYWORDS.search(link):
                 add(link)
 
         for link in self._sitemap_candidates(base_url):
             add(link)
+
+        for path in SECTION_PATHS:
+            add(urljoin(base_url, path))
 
         return candidates
 
@@ -118,6 +135,9 @@ class WebsiteExtractor:
             candidate_url = "https://" + candidate_url
 
         fetch_res = self.client.fetch(candidate_url)
+        if fetch_res.blocked_by_budget:
+            # The budget stopped us before we could check the source.
+            return self._blocked()
         if fetch_res.status_code != 200 or not fetch_res.text:
             return self._unavailable()
 
@@ -147,18 +167,25 @@ class WebsiteExtractor:
         pages: List[Tuple[ParsedHtml, Optional[str]]] = [(parsed_html, homepage_ev.id)]
 
         # Bounded, robots-compliant subpage crawl on the verified domain.
+        # Cap *attempts* (not only successes) so a site full of 404s cannot burn
+        # the request budget, and stop immediately if the budget blocks us.
         pages_crawled = 1
         max_pages = max(1, settings.max_pages_per_website)
+        max_attempts = max(1, settings.max_website_attempts)
+        attempts = 1  # homepage already fetched
         if assessment.decision in {IdentityDecision.TRUSTED, IdentityDecision.QUARANTINED}:
             for sub_url in self._candidate_subpages(homepage_url, parsed_html):
-                if pages_crawled >= max_pages:
+                if pages_crawled >= max_pages or attempts >= max_attempts:
                     break
                 try:
                     if not self.robots.allowed(sub_url):
                         continue
+                    attempts += 1
                     sub_res = self.client.fetch(sub_url)
                 except Exception:
                     continue
+                if sub_res.blocked_by_budget:
+                    break
                 if sub_res.status_code != 200 or not sub_res.text:
                     continue
                 try:

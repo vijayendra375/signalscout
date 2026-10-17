@@ -48,7 +48,10 @@ def extract_people_and_locations(
                     "name": name,
                     "role_code": role_code or group_type,
                     "role_description": role_desc or group_desc,
-                    "inactive": bool(r.get("fratrådt")),
+                    # Brreg marks a role as ended with ``avregistrert``; some
+                    # payloads use the older ``fratrådt`` key. Treat either as
+                    # inactive so former role holders are not presented as current.
+                    "inactive": bool(r.get("avregistrert") or r.get("fratrådt")),
                 }
                 extracted_roles.append(record)
 

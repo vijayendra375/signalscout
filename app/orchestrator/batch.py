@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Callable, List, Optional
 
+from app.budget.request_budget import RequestBudget
 from app.budget.tracker import BudgetTracker
 from app.config.settings import settings
 from app.fetching.http_client import SafeHttpClient
@@ -65,12 +66,18 @@ class BatchRunner:
     ) -> None:
         self.max_workers = max_workers or settings.max_workers
         self.budget = BudgetTracker()
-        self.http_client = SafeHttpClient(budget_tracker=self.budget)
+        self.request_budget = RequestBudget(
+            global_limit=settings.global_request_budget,
+            per_company_limit=settings.max_requests_per_company,
+            deadline_seconds=settings.run_deadline_seconds,
+        )
+        self.http_client = SafeHttpClient(budget_tracker=self.budget, request_budget=self.request_budget)
         self.db = StorageDB(db_path)
         self.pipeline = CompanyPipeline(
             http_client=self.http_client,
             db=self.db,
             budget_tracker=self.budget,
+            request_budget=self.request_budget,
         )
         self.progress_callback = progress_callback
 

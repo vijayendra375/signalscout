@@ -56,8 +56,11 @@ class Settings(BaseModel):
     website_delay_seconds: float = Field(default=0.5, description="Politeness delay between requests to the same domain")
 
     # Budgets
-    max_requests_per_company: int = Field(default=20, description="Ceiling on HTTP requests per target company")
-    max_pages_per_website: int = Field(default=5, description="Max page hops when exploring company website")
+    max_requests_per_company: int = Field(default=12, description="Ceiling on HTTP requests per target company (enforced)")
+    max_pages_per_website: int = Field(default=5, description="Max successfully-crawled pages when exploring a company website")
+    max_website_attempts: int = Field(default=6, description="Ceiling on website fetch attempts (incl. 404s) per company")
+    global_request_budget: int = Field(default=2000, description="Hard ceiling on total outbound requests per run (0 = unlimited)")
+    run_deadline_seconds: int = Field(default=2700, description="Wall-clock ceiling per run in seconds (0 = unlimited); 2700 = 45 min")
 
     # Storage
     db_path: str = Field(default="data/signalscout.db", description="SQLite database path for snapshot persistence")
@@ -84,8 +87,11 @@ class Settings(BaseModel):
             backoff_factor=_env_float("SIGNALSCOUT_BACKOFF_FACTOR", 1.5),
             max_response_bytes=_env_int("SIGNALSCOUT_MAX_RESPONSE_BYTES", 10 * 1024 * 1024),
             user_agent=_env_str("SIGNALSCOUT_USER_AGENT", cls.model_fields["user_agent"].default),
-            max_requests_per_company=_env_int("SIGNALSCOUT_MAX_REQUESTS_PER_COMPANY", 20),
+            max_requests_per_company=_env_int("SIGNALSCOUT_MAX_REQUESTS_PER_COMPANY", 12),
             max_pages_per_website=_env_int("SIGNALSCOUT_MAX_PAGES_PER_WEBSITE", 5),
+            max_website_attempts=_env_int("SIGNALSCOUT_MAX_WEBSITE_ATTEMPTS", 6),
+            global_request_budget=_env_int("SIGNALSCOUT_GLOBAL_REQUEST_BUDGET", 2000),
+            run_deadline_seconds=_env_int("SIGNALSCOUT_RUN_DEADLINE_SECONDS", 2700),
             db_path=_env_str("SIGNALSCOUT_DB_PATH", "data/signalscout.db"),
             declared_third_party_cost_usd=_env_float("SIGNALSCOUT_DECLARED_COST_USD", 0.0),
             model_provider=_env_str("SIGNALSCOUT_MODEL_PROVIDER", "deterministic"),

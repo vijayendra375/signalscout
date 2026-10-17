@@ -4,7 +4,7 @@
   "run_id": "smoke-100-verified",
   "input_count": 100,
   "emitted_envelopes": 100,
-  "elapsed_ms": 73821,
+  "elapsed_ms": 45354,
   "validation": {
     "passed": true,
     "checks": {
@@ -21,14 +21,14 @@
     "invalid_claims": []
   },
   "budget": {
-    "requests": 676,
-    "bytes": 15661218,
-    "runtime_ms": 73821,
+    "requests": 479,
+    "bytes": 7560018,
+    "runtime_ms": 45347,
     "third_party_cost_usd": 0.0,
-    "p50_latency_ms": 471.44,
-    "p95_latency_ms": 1824.5,
-    "max_latency_ms": 12035.32,
-    "errors_count": 300
+    "p50_latency_ms": 494.26,
+    "p95_latency_ms": 1904.74,
+    "max_latency_ms": 9927.33,
+    "errors_count": 95
   },
   "output_file": "out/smoke_100_envelopes.jsonl"
 }
