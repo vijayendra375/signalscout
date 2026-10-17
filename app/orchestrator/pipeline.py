@@ -91,12 +91,16 @@ class CompanyPipeline:
 
         if raw_entity is None:
             # Valid organisation number, but the primary registry record could not
-            # be retrieved. Record the diagnostic and continue with honest absences.
+            # be retrieved. Identity could not be anchored, so the research is
+            # partial rather than completed. All company facts are not_available.
             errors.append(ErrorRecord(
                 code="REGISTRY_ENTITY_UNAVAILABLE",
                 message="Enhetsregisteret entity record was not retrieved; company facts marked not_available.",
                 timestamp=utc_now(),
             ))
+            entity_unavailable = True
+        else:
+            entity_unavailable = False
 
         # 3. Extract claims from official foundation
         company_claims = extract_company_record(raw_entity, entity_ev_id)
@@ -171,7 +175,7 @@ class CompanyPipeline:
                 run_id=run_id,
                 started_at=started_at,
                 completed_at=completed_at,
-                terminal_status="completed",
+                terminal_status="partial" if entity_unavailable else "completed",
             ),
             claims=all_claims,
             evidence=evidence_store.all(),

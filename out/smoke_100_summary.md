@@ -1,10 +1,10 @@
 # SignalScout 100-Company Smoke Test Verification Report
 
 - **Run ID**: `smoke-100-verified`
-- **Date**: `2026-10-17 08:26:14 UTC`
+- **Date**: `2026-10-17 10:14:39 UTC`
 - **Target Companies**: 100
 - **Emitted Envelopes**: 100
-- **Execution Latency**: 45354 ms (45.35 s)
+- **Execution Latency**: 43508 ms (43.51 s)
 - **Third-Party API Cost**: $0.00
 
 ## 1. Batch Invariant Checks
@@ -24,10 +24,10 @@
 
 ## 3. Resource & Budget Accounting
 - **Total HTTP Requests**: 479
-- **Total Bytes Downloaded**: 7,560,018 bytes
-- **P50 Request Latency**: 494.26 ms
-- **P95 Request Latency**: 1904.74 ms
-- **Max Request Latency**: 9927.33 ms
+- **Total Bytes Downloaded**: 7,562,477 bytes
+- **P50 Request Latency**: 431.19 ms
+- **P95 Request Latency**: 2004.25 ms
+- **Max Request Latency**: 6471.62 ms
 - **Non-2xx responses (expected for optional sources, e.g. no annual accounts / no group)**: 95
 
 ## 4. Official Qualification Assessment

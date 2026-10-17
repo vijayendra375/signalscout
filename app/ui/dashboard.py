@@ -250,19 +250,25 @@ p.subtitle { color: var(--muted); font-size: 14px; }
 .section h3 { font-size: 15px; font-weight: 600; color: var(--text); margin: 16px 0 8px; }
 .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
 .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
-.card { background: var(--bg); padding: 14px; border-radius: 8px; border: 1px solid var(--border); }
+.card { background: var(--bg); padding: 14px; border-radius: 8px; border: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
 .card-empty { background: #f1f5f9; padding: 14px; border-radius: 8px; border: 1px dashed var(--border); }
-.card span { font-size: 10.5px; text-transform: uppercase; color: var(--muted); font-weight: 600; display: block; margin-bottom: 6px; }
-.card strong { font-size: 15px; color: var(--text); }
-.card .empty { color: var(--empty); font-style: italic; }
+.card .field-label { font-size: 10px; text-transform: uppercase; color: var(--muted); font-weight: 600; line-height: 1.2; }
+.card .field-value { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.card .field-value strong { font-size: 14px; color: var(--text); }
+.card .field-value span.empty { color: var(--empty); font-style: italic; font-size: 14px; }
+.card .field-value a { color: var(--primary); text-decoration: underline; font-weight: 600; word-break: break-all; }
+.external-link { font-size: 10px; margin-left: 2px; opacity: 0.7; }
+.card .field-value .empty { color: var(--empty); font-style: italic; font-size: 14px; }
 .badge {
   display: inline-block;
-  padding: 3px 8px;
+  padding: 2px 8px;
   border-radius: 9999px;
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
-  margin-left: 6px;
+  flex-shrink: 0;
+  border: 1px solid currentColor;
+  opacity: 0.9;
 }
 .badge-available { background: var(--success-bg); color: var(--success); }
 .badge-not_available { background: var(--warning-bg); color: var(--warning); }
@@ -410,13 +416,16 @@ function claimEvidence(env, field) {
 
 // Render a claim card: label, formatted value, availability badge, and linked
 // evidence provenance so every displayed fact is traceable to its source.
+// Uses flexbox so label, value, and badge never run together.
 function card(label, valueHtml, avail, env, field) {
   const ev = claimEvidence(env, field);
+  const badgeHtml = avail
+    ? '<span class="badge badge-' + esc(avail) + '">' + esc(avail) + '</span>'
+    : '';
   return (
     '<div class="card">' +
-    '<span>' + esc(label) + '</span>' +
-    valueHtml +
-    '<span class="badge badge-' + esc(avail) + '">' + esc(avail) + '</span>' +
+    '<span class="field-label">' + esc(label) + '</span>' +
+    '<div class="field-value">' + valueHtml + badgeHtml + '</div>' +
     ev +
     '</div>'
   );
@@ -538,12 +547,22 @@ function renderDetail() {
   let html = `
     <div class="section">
       <h2>${esc(name)}</h2>
-      <p style="color: var(--muted); margin-bottom: 12px;">
-        Org.nr: <strong>${esc(org)}</strong> &nbsp; ${badge('available')}
-        <br>Legal Form: <strong>${esc(form)}</strong> &nbsp; Registration: <strong>${esc(regDate) || 'Not reported'}</strong>
-      </p>
+      <div class="grid-3">
+        <div class="card">
+          <span class="field-label">Organisation Number</span>
+          <div class="field-value"><strong>${esc(org)}</strong> ${badge('available')}</div>
+        </div>
+        <div class="card">
+          <span class="field-label">Legal Form</span>
+          <div class="field-value"><strong>${esc(form)}</strong></div>
+        </div>
+        <div class="card">
+          <span class="field-label">Registration Date</span>
+          <div class="field-value"><strong>${esc(regDate) || 'Not reported'}</strong></div>
+        </div>
+      </div>
       ${synthesis ? `
-      <div style="background: #eef2ff; border-left: 3px solid var(--primary); padding: 12px 16px; border-radius: 4px; font-size: 14px; margin-bottom: 16px;">
+      <div style="background: #eef2ff; border-left: 3px solid var(--primary); padding: 12px 16px; border-radius: 4px; font-size: 14px; margin-top: 16px;">
         <strong>Autonomous Synthesis:</strong> ${esc(synthesis)}
       </div>` : ''}
       <div class="grid-3">
@@ -552,17 +571,16 @@ function renderDetail() {
         ${card('Postal Code', post ? esc(post) : '<span class="empty">Not reported</span>', claimAvail(env, 'postal_code'), env, 'postal_code')}
         ${card('Industry', industry ? esc(industry) : '<span class="empty">Not reported</span>', claimAvail(env, 'industry_code'), env, 'industry_code')}
         ${card('Employees', employees != null ? esc(employees) : '<span class="empty">Not reported</span>', claimAvail(env, 'registered_employees'), env, 'registered_employees')}
-        <div class="card"><span>Adverse Status</span><strong>${adverse === true ? 'Yes — bankruptcy/liquidation' : 'No adverse status reported'} ${adverse === true ? '<span class="badge badge-not_available" style="background:var(--danger-bg);color:var(--danger)">⚠</span>' : ''}</strong></div>
+        ${card('Adverse Status', adverse === true ? 'Yes — bankruptcy/liquidation' : adverse === false ? 'No adverse status reported' : '<span class="empty">Not reported</span>', claimAvail(env, 'adverse_status'), env, 'adverse_status')}
       </div>
-    </div>
 
     <div class="section">
       <h2>Registration &amp; Status</h2>
       <div class="grid-3">
         ${card('Share Capital', shareCap != null ? money(shareCap, shareCurr) : '<span class="empty">Not reported</span>', shareCap != null ? 'available' : 'not_available', env, 'share_capital')}
         ${card('Last Accounts Year', lastAcctYear ? esc(lastAcctYear) : '<span class="empty">Not reported</span>', lastAcctYear ? 'available' : 'not_available', env, 'last_accounts_year')}
-        ${card('VAT Registered', vatReg === true ? 'Yes' : 'No', vatReg === true ? 'available' : 'not_available', env, 'vat_registered')}
-        ${card('In Foretaksregisteret', inForetaks === true ? 'Yes' : 'No', inForetaks === true ? 'available' : 'not_available', env, 'registered_in_foretaksregisteret')}
+        ${card('VAT Registered', vatReg === true ? 'Yes' : 'No', claimAvail(env, 'vat_registered'), env, 'vat_registered')}
+        ${card('In Foretaksregisteret', inForetaks === true ? 'Yes' : 'No', claimAvail(env, 'registered_in_foretaksregisteret'), env, 'registered_in_foretaksregisteret')}
         ${card('Mobile Phone', mobile ? esc(mobile) : '<span class="empty">Not reported</span>', mobile ? 'available' : 'not_available', env, 'mobile_phone')}
         ${card('Email Address', email ? esc(email) : '<span class="empty">Not reported</span>', email ? 'available' : 'not_available', env, 'email_address')}
       </div>
@@ -573,9 +591,15 @@ function renderDetail() {
 
     <div class="section">
       <h2>Financial Statements</h2>
-      <p style="color: var(--muted); font-size: 13px; margin-bottom: 12px;">
-        Reporting period: ${formatPeriod(reportingPeriod)} &nbsp; Currency: ${esc(currency)}
-      </p>
+      <div class="card">
+        <span class="field-label">Reporting Period</span>
+        <div class="field-value"><strong>${formatPeriod(reportingPeriod)}</strong></div>
+      </div>
+      <div class="card">
+        <span class="field-label">Currency</span>
+        <div class="field-value"><strong>${esc(currency)}</strong></div>
+      </div>
+      ${revAvail !== 'available' ? '<p style="color: var(--muted); font-size: 13px; margin-top: 10px;">No annual accounts were found in the official registry for this organisation.</p>' : ''}
       <div class="grid-3">
         ${card('Latest Revenue', money(rev, currency), revAvail, env, 'latest_revenue')}
         ${card('Operating Result', money(opRes, currency), claimAvail(env, 'latest_operating_result'), env, 'latest_operating_result')}
@@ -599,7 +623,10 @@ function renderDetail() {
       <div class="grid-3">
         ${card('Managing Director / CEO', ceo ? esc(ceo) : '<span class="empty">Not reported</span>', ceo ? 'available' : 'not_available', env, 'managing_director')}
         ${card('Board Chair', chair ? esc(chair) : '<span class="empty">Not reported</span>', chair ? 'available' : 'not_available', env, 'board_chair')}
-        <div class="card"><span>Board Members</span>${boardMembers ? listValue(boardMembers) : '<span class="empty">Not reported</span>'}</div>
+        <div class="card">
+          <span class="field-label">Board Members</span>
+          <div class="field-value">${boardMembers ? listValue(boardMembers) : '<span class="empty">Not reported</span>'}</div>
+        </div>
       </div>
     </div>
 
@@ -607,15 +634,21 @@ function renderDetail() {
       <h2>Workplaces &amp; Group</h2>
       <div class="grid-2">
         ${card('Operating Workplaces', workplaceCount != null ? esc(workplaceCount) : '<span class="empty">Not reported</span>', workplaceCount != null ? 'available' : 'not_available', env, 'workplaces_count')}
-        <div class="card"><span>Workplace Details</span>${workplaces ? listValue(workplaces) : '<span class="empty">Not reported</span>'}</div>
+        <div class="card">
+          <span class="field-label">Workplace Details</span>
+          <div class="field-value">${workplaces ? listValue(workplaces) : '<span class="empty">Not reported</span>'}</div>
+        </div>
       </div>
     </div>
 
     <div class="section">
       <h2>Website &amp; Digital Footprint</h2>
       <div class="grid-2">
-        <div class="card"><span>Official Website</span>
-          ${website ? `<a href="${esc(website)}" target="_blank" rel="noopener noreferrer" style="color:var(--primary); font-weight:600; text-decoration:underline;">${esc(website)} ↗</a>` : '<span class="empty">No official domain verified</span>'}
+        <div class="card">
+          <span class="field-label">Official Website</span>
+          <div class="field-value">
+            ${website ? `<a href="${esc(website)}" target="_blank" rel="noopener noreferrer">${esc(website)} <span class="external-link">↗</span></a>` : '<span class="empty">No official domain verified</span>'}
+          </div>
         </div>
         ${card('Pages Crawled', pagesCrawled != null ? esc(pagesCrawled) : '<span class="empty">Not checked</span>', pagesCrawled != null ? 'available' : 'not_available', env, 'website_pages_crawled')}
         ${card('Website Title', websiteTitle ? esc(websiteTitle) : '<span class="empty">Not available</span>', websiteTitle ? 'available' : 'not_available', env, 'website_title')}

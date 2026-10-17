@@ -316,3 +316,192 @@ def test_unsafe_urls_are_rejected():
     assert _safe_url("ftp://example.com") is None
     assert _safe_url("") is None
     assert _safe_url(None) is None
+
+
+# ------------------------------------------------------------------
+# Dashboard rendering tests
+# ------------------------------------------------------------------
+
+def test_dashboard_card_structure_in_template(server_with_mock):
+    """The dashboard template contains field-label and field-value classes for card separation."""
+    from app.ui.dashboard import DASHBOARD_TEMPLATE
+
+    # The card() function uses flexbox with field-label and field-value wrappers
+    assert 'class="field-label"' in DASHBOARD_TEMPLATE, "field-label class missing from template"
+    assert 'class="field-value"' in DASHBOARD_TEMPLATE, "field-value class missing from template"
+    # badgeHtml is concatenated inside field-value div, not after value
+    assert 'badgeHtml' in DASHBOARD_TEMPLATE, "badgeHtml variable not found in card() function"
+    assert 'valueHtml + badgeHtml' in DASHBOARD_TEMPLATE, "value and badge not combined in field-value div"
+
+
+def test_dashboard_all_availability_badge_classes_in_css(server_with_mock):
+    """All six availability states have distinct CSS badge classes in the template."""
+    from app.ui.dashboard import DASHBOARD_TEMPLATE
+
+    for state in ["available", "not_available", "not_applicable", "blocked", "ambiguous", "failed"]:
+        css_class = f'.badge-{state}'
+        assert css_class in DASHBOARD_TEMPLATE, f"CSS badge class '{css_class}' missing from template"
+
+
+def test_dashboard_escapes_html_sensitive_company_data(server_with_mock):
+    """Company data with HTML special characters is escaped in embedded JSON data."""
+    server, _ = server_with_mock
+    env = _make_envelope("989061593", "<script>alert('xss')</script> & Co.")
+    with server._lock:
+        server.looked_up["989061593"] = env
+
+    envelopes = list(server.looked_up.values())
+    tmp_path = Path("__test_dashboard5__.html")
+    try:
+        from app.ui.dashboard import generate_dashboard_html
+        generate_dashboard_html(envelopes, tmp_path)
+        html = tmp_path.read_text(encoding="utf-8")
+
+        # The company name should be escaped in the embedded JSON (</script> as <\/script>)
+        assert "<\\/script>" in html, "Company name with </script> not escaped in JSON data"
+    finally:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def test_dashboard_handles_long_urls(server_with_mock):
+    """Long source URLs are validated as safe http/https links."""
+    from app.ui.dashboard import _safe_url
+
+    long_url = "https://data.brreg.no/enhetsregisteret/api/enheter/989061593?very_long_parameter=abcdefghijklmnopqrstuvwxyz1234567890"
+    assert _safe_url(long_url) == long_url, "Long valid URL should be accepted"
+
+    # Unsafe schemes should be rejected
+    assert _safe_url("javascript:alert(1)") is None
+    assert _safe_url("data:text/html,<script>") is None
+
+
+def test_dashboard_missing_values_produce_empty_state_spans():
+    """The _money and _list_value helpers produce empty state spans for missing values."""
+    from app.ui.dashboard import _money, _list_value
+
+    # Missing numeric value -> empty span
+    result = _money(None, "NOK")
+    assert 'class="empty"' in result, "Missing money value should produce empty span"
+    assert "Not available" in result
+
+    # Missing list value -> empty span
+    result = _list_value(None)
+    assert 'class="empty"' in result, "Missing list value should produce empty span"
+    assert "Not available" in result
+
+    # Empty list -> empty span
+    result = _list_value([])
+    assert 'class="empty"' in result, "Empty list should produce empty span"
+
+
+# ------------------------------------------------------------------
+# Dashboard badge mapping regression tests
+# ------------------------------------------------------------------
+
+def test_dashboard_vat_registered_false_shows_available_badge(server_with_mock):
+    """When Brreg explicitly reports vat_registered=False, the dashboard must
+    show availability=available (verified negative), not not_available."""
+    server, _ = server_with_mock
+    env = _make_envelope("989061593", "Test Company AS")
+    cl = Claim(
+        field="vat_registered",
+        value=False,
+        availability=AvailabilityState.AVAILABLE,
+        confidence=1.0,
+        evidence_ids=["ev-1"],
+    )
+    env.claims.append(cl)
+    with server._lock:
+        server.looked_up["989061593"] = env
+
+    envelopes = list(server.looked_up.values())
+    tmp_path = Path("__test_dashboard_vat__.html")
+    try:
+        from app.ui.dashboard import generate_dashboard_html
+        generate_dashboard_html(envelopes, tmp_path)
+        html = tmp_path.read_text(encoding="utf-8")
+
+        # The embedded JSON must carry availability=available for the verified negative
+        import re
+        vat_match = re.search(r'"field":\s*"vat_registered".*?"availability":\s*"available"', html)
+        assert vat_match is not None, "vat_registered claim must have availability=available in embedded JSON"
+
+        # The old inline boolean check pattern must not be in the template
+        assert "vatReg === true ? 'available' : 'not_available'" not in html, \
+            "Old inline boolean badge check must not be in dashboard template"
+    finally:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def test_dashboard_adverse_status_false_shows_available_badge(server_with_mock):
+    """When Brreg explicitly reports all adverse flags as false, the dashboard
+    must show availability=available (verified negative), not not_available."""
+    server, _ = server_with_mock
+    env = _make_envelope("989061593", "Test Company AS")
+    cl = Claim(
+        field="adverse_status",
+        value=False,
+        availability=AvailabilityState.AVAILABLE,
+        confidence=1.0,
+        evidence_ids=["ev-1"],
+    )
+    env.claims.append(cl)
+    with server._lock:
+        server.looked_up["989061593"] = env
+
+    envelopes = list(server.looked_up.values())
+    tmp_path = Path("__test_dashboard_adverse__.html")
+    try:
+        from app.ui.dashboard import generate_dashboard_html
+        generate_dashboard_html(envelopes, tmp_path)
+        html = tmp_path.read_text(encoding="utf-8")
+
+        # The embedded JSON must carry availability=available for the verified negative
+        import re
+        adv_match = re.search(r'"field":\s*"adverse_status".*?"availability":\s*"available"', html)
+        assert adv_match is not None, "adverse_status claim must have availability=available in embedded JSON"
+    finally:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def test_dashboard_adverse_status_null_shows_not_available(server_with_mock):
+    """When Brreg omits adverse status keys entirely, the dashboard must
+    show availability=not_available and an empty state, not a verified negative."""
+    server, _ = server_with_mock
+    env = _make_envelope("989061593", "Test Company AS")
+    cl = Claim(
+        field="adverse_status",
+        value=None,
+        availability=AvailabilityState.NOT_AVAILABLE,
+        confidence=1.0,
+        evidence_ids=[],
+    )
+    env.claims.append(cl)
+    with server._lock:
+        server.looked_up["989061593"] = env
+
+    envelopes = list(server.looked_up.values())
+    tmp_path = Path("__test_dashboard_adverse_null__.html")
+    try:
+        from app.ui.dashboard import generate_dashboard_html
+        generate_dashboard_html(envelopes, tmp_path)
+        html = tmp_path.read_text(encoding="utf-8")
+
+        # The embedded JSON must carry availability=not_available for missing data
+        import re
+        adv_match = re.search(r'"field":\s*"adverse_status".*?"availability":\s*"not_available"', html)
+        assert adv_match is not None, "adverse_status missing data must have availability=not_available in embedded JSON"
+    finally:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass

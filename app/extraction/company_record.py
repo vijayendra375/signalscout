@@ -63,7 +63,8 @@ def extract_company_record(raw_entity: Optional[dict[str, Any]], evidence_id: Op
     # 5. Employees
     employees = raw_entity.get("antallAnsatte")
     claims.append(create_claim_record("registered_employees", employees, eids))
-    claims.append(create_claim_record("employees_registered", bool(raw_entity.get("harRegistrertAntallAnsatte")), eids))
+    _emp_reg_raw = raw_entity.get("harRegistrertAntallAnsatte")
+    claims.append(create_claim_record("employees_registered", bool(_emp_reg_raw) if _emp_reg_raw is not None else None, eids))
 
     # 6. Registration Date
     reg_date = raw_entity.get("registreringsdatoEnhetsregisteret") or raw_entity.get("stiftelsesdato")
@@ -83,15 +84,30 @@ def extract_company_record(raw_entity: Optional[dict[str, Any]], evidence_id: Op
     claims.append(create_claim_record("last_accounts_year", raw_entity.get("sisteInnsendteAarsregnskap"), eids))
 
     # 10. Registration statuses.
-    claims.append(create_claim_record("vat_registered", bool(raw_entity.get("registrertIMvaregisteret")), eids))
-    claims.append(create_claim_record("registered_in_foretaksregisteret", bool(raw_entity.get("registrertIForetaksregisteret")), eids))
-    claims.append(create_claim_record("registered_in_voluntary_register", bool(raw_entity.get("registrertIFrivillighetsregisteret")), eids))
+    # Use the key-presence check so that a missing Brreg key yields not_available
+    # rather than fabricating a "verified negative" (False). Rule #6: missing
+    # information must never be interpreted as a verified negative.
+    _vat_raw = raw_entity.get("registrertIMvaregisteret")
+    _foretaks_raw = raw_entity.get("registrertIForetaksregisteret")
+    _frivillig_raw = raw_entity.get("registrertIFrivillighetsregisteret")
+    claims.append(create_claim_record("vat_registered", bool(_vat_raw) if _vat_raw is not None else None, eids))
+    claims.append(create_claim_record("registered_in_foretaksregisteret", bool(_foretaks_raw) if _foretaks_raw is not None else None, eids))
+    claims.append(create_claim_record("registered_in_voluntary_register", bool(_frivillig_raw) if _frivillig_raw is not None else None, eids))
 
     # 11. Adverse Status (bankruptcy, liquidation, dissolution)
-    is_bankrupt = bool(raw_entity.get("konkurs"))
-    is_liquidating = bool(raw_entity.get("underAvvikling"))
-    is_dissolving = bool(raw_entity.get("underTvangsavviklingEllerTvangsopplosning"))
-    adverse = is_bankrupt or is_liquidating or is_dissolving
+    # Use key-presence checks so a missing Brreg key yields not_available
+    # rather than fabricating a verified negative.
+    _konkurs_raw = raw_entity.get("konkurs")
+    _avvikling_raw = raw_entity.get("underAvvikling")
+    _tvangs_raw = raw_entity.get("underTvangsavviklingEllerTvangsopplosning")
+    is_bankrupt = bool(_konkurs_raw) if _konkurs_raw is not None else None
+    is_liquidating = bool(_avvikling_raw) if _avvikling_raw is not None else None
+    is_dissolving = bool(_tvangs_raw) if _tvangs_raw is not None else None
+    # Adverse is available only if at least one status is observed; otherwise not_available.
+    if is_bankrupt is None and is_liquidating is None and is_dissolving is None:
+        adverse = None
+    else:
+        adverse = bool(is_bankrupt or is_liquidating or is_dissolving)
     claims.append(create_claim_record("adverse_status", adverse, eids))
 
     # 12. Secondary activities (additional NACE classifications beyond naeringskode1).

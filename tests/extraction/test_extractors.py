@@ -172,3 +172,86 @@ def test_people_and_locations_extraction():
     assert "Anne Drinkwater" in claim_dict["board_members"]
     assert claim_dict["workplaces_count"] == 1
     assert len(claim_dict["operating_workplaces"]) == 1
+
+
+def test_binary_fields_missing_key_is_not_available():
+    # Brreg may omit a boolean key entirely. Missing key must yield not_available,
+    # never a fabricated verified negative (False).
+    raw_entity = {
+        "organisasjonsnummer": "923609016",
+        "navn": "TEST AS",
+        # NOTE: registrertIMvaregisteret, registrertIForetaksregisteret,
+        # registrertIFrivillighetsregisteret, konkurs, underAvvikling,
+        # underTvangsavviklingEllerTvangsopplosning, harRegistrertAntallAnsatte
+        # are all ABSENT from this payload.
+    }
+    claims = extract_company_record(raw_entity, "ev-1")
+    by = {c.field: c for c in claims}
+    for f in ["vat_registered", "registered_in_foretaksregisteret",
+              "registered_in_voluntary_register", "adverse_status",
+              "employees_registered"]:
+        assert by[f].availability == AvailabilityState.NOT_AVAILABLE, \
+            f"{f} should be not_available when Brreg key is missing, got {by[f].availability}"
+        assert by[f].value is None, f"{f} value should be None when missing"
+
+
+def test_binary_fields_confirmed_false_is_available():
+    # When Brreg explicitly sends False, that is an observed verified negative
+    # and must be available (not not_available).
+    raw_entity = {
+        "organisasjonsnummer": "923609016",
+        "navn": "TEST AS",
+        "registrertIMvaregisteret": False,
+        "registrertIForetaksregisteret": False,
+        "registrertIFrivillighetsregisteret": False,
+        "konkurs": False,
+        "underAvvikling": False,
+        "underTvangsavviklingEllerTvangsopplosning": False,
+        "harRegistrertAntallAnsatte": False,
+    }
+    claims = extract_company_record(raw_entity, "ev-1")
+    by = {c.field: c for c in claims}
+    for f in ["vat_registered", "registered_in_foretaksregisteret",
+              "registered_in_voluntary_register", "adverse_status",
+              "employees_registered"]:
+        assert by[f].availability == AvailabilityState.AVAILABLE, \
+            f"{f} should be available when Brreg explicitly sends False"
+        assert by[f].value is False, f"{f} value should be False"
+
+
+def test_financials_retains_period_and_currency():
+    # Financial values must retain correct reporting period and currency;
+    # missing values must never be substituted with zero.
+    raw_accounts = [
+        {
+            "id": 1,
+            "aar": 2024,
+            "valuta": "EUR",
+            "regnskapsperiode": {"fraDato": "2024-01-01", "tilDato": "2024-12-31"},
+            "resultatregnskapResultat": {
+                "driftsresultat": {
+                    "driftsinntekter": {"sumDriftsinntekter": None},
+                    "driftsresultat": None,
+                },
+                "aarsresultat": None,
+                "ordinaertResultatFoerSkattekostnad": None,
+            },
+            "eiendeler": {"sumEiendeler": None},
+            "egenkapitalGjeld": {
+                "egenkapital": {"sumEgenkapital": None},
+                "gjeldOversikt": {"sumGjeld": None},
+            },
+        }
+    ]
+    claims = extract_financials(raw_accounts, "ev-fin-1")
+    by = {c.field: c for c in claims}
+    # Missing numeric fields are not_available, never 0.0
+    for f in ["latest_revenue", "latest_operating_result", "latest_annual_result",
+              "latest_total_assets", "latest_total_debt"]:
+        assert by[f].availability == AvailabilityState.NOT_AVAILABLE, \
+            f"{f} should be not_available when source value is null"
+        assert by[f].value is None
+    # Currency and period are preserved from the source record
+    assert by["financial_currency"].value == "EUR"
+    assert by["financial_currency"].availability == AvailabilityState.AVAILABLE
+    assert by["latest_reporting_period"].value == {"fraDato": "2024-01-01", "tilDato": "2024-12-31"}
