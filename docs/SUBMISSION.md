@@ -36,7 +36,7 @@ exactly one terminal JSONL envelope per input plus a machine-readable report.
 
 ```bash
 python -m pip install -r requirements.txt
-python -m pytest -q                          # 70 offline tests
+python -m pytest -q                          # offline regression suite
 python scripts/smoke_100.py                  # live 100-company smoke test
 python scripts/diff_snapshots.py \
   --previous out/smoke_100_envelopes.jsonl \
@@ -46,7 +46,24 @@ python run.py --input data/smoke_100_companies.jsonl \
   --output out/envelopes.jsonl --report out/report.json
 ```
 
-## 5. Model / API declaration
+## 5. Final preflight audit
+
+Run the structural preflight against the exact evaluator input and outputs:
+
+```bash
+python scripts/audit_submission.py \
+  --input <evaluator-input.jsonl> \
+  --expected-count 1000 \
+  --output <evaluator-output.jsonl> \
+  --report <evaluator-report.json>
+```
+
+Use the evaluator's actual frozen batch size (the official rules specify 1,000
+to 1,100 records); do not manufacture a substitute dataset. A passing preflight
+checks structural integrity and declared limits, not information recall or
+source correctness. Those still require separate review.
+
+## 6. Model / API declaration
 - Registry data: Brønnøysundregistrene public REST APIs (no auth).
 - Websites: direct, robots-compliant HTTP; no login-walled scraping.
 - Model: none required. Optional OpenAI-compatible provider is opt-in and never
