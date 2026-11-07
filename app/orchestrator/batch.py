@@ -17,6 +17,11 @@ from app.output.serializer import validate_batch_envelopes, write_jsonl
 from app.storage.db import StorageDB
 from .pipeline import CompanyPipeline
 
+# Sentinel for malformed JSONL records. Contains zero digits so that
+# normalize_org_number() returns "" and validate_org_number() always rejects
+# it. Malformed JSONL can never be converted into a valid organisation number.
+INVALID_JSONL_SENTINEL = "__INVALID_JSONL_RECORD__"
+
 
 def load_input_organisations(path: str | Path) -> List[str]:
     """Read organisation numbers from JSON, JSONL, or text file.
@@ -48,12 +53,35 @@ def load_input_organisations(path: str | Path) -> List[str]:
                 try:
                     item = json.loads(line)
                 except json.JSONDecodeError as exc:
-                    raw_values.append(f"__INVALID_JSONL__:{line}")
+                    # Malformed JSON must be impossible to validate as an
+                    # organisation number. Use a zero-digit sentinel so that
+                    # normalize_org_number() returns "" and validation fails.
+                    # Never embed the raw line, which may contain digits that
+                    # the validator could extract and accept.
+                    raw_values.append(INVALID_JSONL_SENTINEL)
                     continue
                 raw = item.get("organisation_number") if isinstance(item, dict) else ""
                 raw_values.append("" if raw is None else str(raw))
+            elif any(c in line for c in "{}[]"):
+                # Line contains JSON structural content but does not start with
+                # a JSON delimiter (e.g. 'junk {"organisation_number":"..."}').
+                # This is JSON-like content that is not a clean record — reject
+                # it outright rather than extracting digits from surrounding text.
+                raw_values.append(INVALID_JSONL_SENTINEL)
+                continue
             else:
-                # Plain-text line: treat as a raw organisation number candidate.
+                # Plain-text line: only accept an entire line that is an
+                # organisation number with allowed formatting (spaces, hyphens).
+                # Never extract an organisation number from arbitrary
+                # surrounding text.
+                allowed_chars = set("0123456789 -")
+                if not all(c in allowed_chars for c in line):
+                    raw_values.append(INVALID_JSONL_SENTINEL)
+                    continue
+                digits_only = line.replace(" ", "").replace("-", "")
+                if len(digits_only) != 9:
+                    raw_values.append(INVALID_JSONL_SENTINEL)
+                    continue
                 raw_values.append(line)
     else:
         for line in text.splitlines():

@@ -1,7 +1,12 @@
 """Unit tests for batch processing, envelopes, and invariants."""
 
 from app.identity.validator import validate_org_number
-from app.orchestrator.batch import BatchRunner, count_startable_orgs, load_input_organisations
+from app.orchestrator.batch import (
+    BatchRunner,
+    count_startable_orgs,
+    INVALID_JSONL_SENTINEL,
+    load_input_organisations,
+)
 from app.output.models import (
     AvailabilityState,
     Claim,
@@ -231,14 +236,28 @@ def test_jsonl_mixed_valid_and_invalid_records(tmp_path):
 
 
 def test_jsonl_plain_text_fallback(tmp_path):
-    """Non-JSON lines in a .jsonl file fall back to raw-line handling."""
+    """Plain-text lines must be entire organisation numbers with allowed
+    formatting (spaces, hyphens). Arbitrary text with digits is rejected."""
     p = tmp_path / "companies.jsonl"
     p.write_text(
-        "\n".join(["989061593", "not-an-org", "984851006"]),
+        "\n".join(
+            [
+                "989061593",       # pure digits
+                "923 609 016",     # spaces
+                "923-609-016",     # hyphens
+                "not-an-org",      # arbitrary text with hyphens but not digits -> rejected
+                "prefix 123 suffix",  # letters with digits -> rejected
+            ]
+        ),
         encoding="utf-8",
     )
     raw = load_input_organisations(p)
-    assert raw == ["989061593", "not-an-org", "984851006"]
+    assert raw == ["989061593", "923 609 016", "923-609-016", INVALID_JSONL_SENTINEL, INVALID_JSONL_SENTINEL]
+    # The two rejected entries must not validate as organisation numbers.
+    for r in raw:
+        if r == INVALID_JSONL_SENTINEL:
+            continue
+        validate_org_number(r)  # must not raise
 
 
 def test_batch_validation_detects_missing_valid_input(tmp_path):
@@ -292,15 +311,42 @@ def test_malformed_jsonl_with_valid_org_number_is_rejected(tmp_path):
     """A malformed JSON line containing a valid 9-digit org number must be
     rejected and diagnosed, never fall back to digit extraction."""
     p = tmp_path / "companies.jsonl"
-    # Malformed JSON object-looking line starting with '{'
     p.write_text(
         '{broken json with "989061593" inside}\n',
         encoding="utf-8",
     )
     raw = load_input_organisations(p)
-    # The malformed line is preserved as an invalid diagnostics marker.
     assert len(raw) == 1
-    assert raw[0].startswith("__INVALID_JSONL__:")
+    assert raw[0] == INVALID_JSONL_SENTINEL
+    # Must never validate as an organisation number.
+    try:
+        validate_org_number(raw[0])
+        raise AssertionError("INVALID_JSONL_SENTINEL must not validate")
+    except ValueError:
+        pass
+
+
+def test_malformed_jsonl_exact_audit_example_rejected(tmp_path):
+    """The exact failing example from the audit must be rejected.
+
+    The old code produced '__INVALID_JSONL__:{"organisation_number":"989061593",broken}'
+    which validate_org_number() accepted as '989061593'. The new sentinel must
+    never validate.
+    """
+    p = tmp_path / "companies.jsonl"
+    p.write_text(
+        '{"organisation_number": "989061593", broken\n',
+        encoding="utf-8",
+    )
+    raw = load_input_organisations(p)
+    assert len(raw) == 1
+    assert raw[0] == INVALID_JSONL_SENTINEL
+    # Direct validator check: sentinel must never validate.
+    try:
+        validate_org_number(raw[0])
+        raise AssertionError("INVALID_JSONL_SENTINEL must not validate")
+    except ValueError:
+        pass
 
 
 def test_malformed_jsonl_array_is_rejected(tmp_path):
@@ -312,7 +358,12 @@ def test_malformed_jsonl_array_is_rejected(tmp_path):
     )
     raw = load_input_organisations(p)
     assert len(raw) == 1
-    assert raw[0].startswith("__INVALID_JSONL__:")
+    assert raw[0] == INVALID_JSONL_SENTINEL
+    try:
+        validate_org_number(raw[0])
+        raise AssertionError("INVALID_JSONL_SENTINEL must not validate")
+    except ValueError:
+        pass
 
 
 def test_plain_text_org_number_fallback_still_works(tmp_path):
@@ -335,6 +386,204 @@ def test_malformed_jsonl_never_extracts_digits(tmp_path):
     )
     raw = load_input_organisations(p)
     assert len(raw) == 1
-    assert raw[0].startswith("__INVALID_JSONL__:")
+    assert raw[0] == INVALID_JSONL_SENTINEL
     # Must NOT be "989061593" extracted from malformed JSON.
     assert raw[0] != "989061593"
+    # Direct validator check confirms impossibility.
+    try:
+        validate_org_number(raw[0])
+        raise AssertionError("INVALID_JSONL_SENTINEL must not validate")
+    except ValueError:
+        pass
+
+
+def test_malformed_jsonl_missing_organisation_number_invalid(tmp_path):
+    """A valid JSON object missing the organisation_number field must remain
+    invalid and never enter the published dataset."""
+    p = tmp_path / "companies.jsonl"
+    p.write_text(
+        '{"name": "Some Company"}\n',
+        encoding="utf-8",
+    )
+    raw = load_input_organisations(p)
+    assert len(raw) == 1
+    assert raw[0] == ""
+    # Empty string must fail validation.
+    try:
+        validate_org_number(raw[0])
+        raise AssertionError("Empty organisation number must not validate")
+    except ValueError:
+        pass
+
+
+def test_malformed_jsonl_null_organisation_number_invalid(tmp_path):
+    """A valid JSON object with a null organisation_number must remain invalid."""
+    p = tmp_path / "companies.jsonl"
+    p.write_text(
+        '{"organisation_number": null, "name": "Some Company"}\n',
+        encoding="utf-8",
+    )
+    raw = load_input_organisations(p)
+    assert len(raw) == 1
+    assert raw[0] == ""
+    try:
+        validate_org_number(raw[0])
+        raise AssertionError("Null organisation number must not validate")
+    except ValueError:
+        pass
+
+
+def test_malformed_jsonl_never_enters_envelopes(tmp_path):
+    """Malformed JSONL records must never enter published envelopes, evidence,
+    or change detection through the batch-processing path."""
+    p = tmp_path / "companies.jsonl"
+    p.write_text(
+        "\n".join(
+            [
+                '{"organisation_number": "989061593", "name": "Valid Company AS"}',
+                '{"organisation_number": "989061593", broken',  # malformed
+                '{"organisation_number": "984851006", "name": "Another Valid AS"}',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    runner = BatchRunner(max_workers=1, db_path=str(tmp_path / "batch.db"))
+    output = tmp_path / "out.jsonl"
+    envelopes = runner.run_batch(
+        orgs=load_input_organisations(p),
+        output_path=output,
+        run_id="malformed-jsonl-path",
+    )
+
+    # Only the two valid, unique org numbers become envelopes.
+    assert len(envelopes) == 2
+    assert {e.organisation_number for e in envelopes} == {
+        "989061593",
+        "984851006",
+    }
+    assert len(runner.invalid_inputs) == 1
+    # No envelope may use the malformed-record sentinel as its organisation number.
+    assert all(
+        e.organisation_number != INVALID_JSONL_SENTINEL for e in envelopes
+    )
+    # Verify invalid_inputs contains the sentinel, not digits.
+    assert any(INVALID_JSONL_SENTINEL in item["input"] for item in runner.invalid_inputs)
+
+
+# --- BLOCKER 3: malformed JSONL attribution bypass ---------------------------
+
+def test_jsonl_text_before_json_is_rejected(tmp_path):
+    """A line with arbitrary text before a JSON object must be rejected.
+
+    'junk {"organisation_number":"989061593"}' must not have its digits
+    extracted. The line contains '{' so it is JSON-like content but not a
+    clean JSON record.
+    """
+    p = tmp_path / "companies.jsonl"
+    p.write_text(
+        'junk {"organisation_number":"989061593"}\n',
+        encoding="utf-8",
+    )
+    raw = load_input_organisations(p)
+    assert len(raw) == 1
+    assert raw[0] == INVALID_JSONL_SENTINEL
+    try:
+        validate_org_number(raw[0])
+        raise AssertionError("INVALID_JSONL_SENTINEL must not validate")
+    except ValueError:
+        pass
+
+
+def test_jsonl_arbitrary_text_with_digits_is_rejected(tmp_path):
+    """Arbitrary text containing digits must not have its digits extracted.
+
+    'prefix 989061593 suffix' has no JSON structural characters but is not a
+    clean organisation number line. It must be rejected.
+    """
+    p = tmp_path / "companies.jsonl"
+    p.write_text(
+        "prefix 989061593 suffix\n",
+        encoding="utf-8",
+    )
+    raw = load_input_organisations(p)
+    assert len(raw) == 1
+    assert raw[0] == INVALID_JSONL_SENTINEL
+    try:
+        validate_org_number(raw[0])
+        raise AssertionError("INVALID_JSONL_SENTINEL must not validate")
+    except ValueError:
+        pass
+
+
+def test_jsonl_malformed_json_with_leading_text_is_rejected(tmp_path):
+    """Malformed JSON with leading whitespace/text must be rejected."""
+    p = tmp_path / "companies.jsonl"
+    p.write_text(
+        '  prefix {"broken": true\n',
+        encoding="utf-8",
+    )
+    raw = load_input_organisations(p)
+    assert len(raw) == 1
+    assert raw[0] == INVALID_JSONL_SENTINEL
+    try:
+        validate_org_number(raw[0])
+        raise AssertionError("INVALID_JSONL_SENTINEL must not validate")
+    except ValueError:
+        pass
+
+
+def test_jsonl_malformed_array_with_leading_text_is_rejected(tmp_path):
+    """Malformed JSON array with leading text must be rejected."""
+    p = tmp_path / "companies.jsonl"
+    p.write_text(
+        "junk [1, 2, 3]\n",
+        encoding="utf-8",
+    )
+    raw = load_input_organisations(p)
+    assert len(raw) == 1
+    assert raw[0] == INVALID_JSONL_SENTINEL
+    try:
+        validate_org_number(raw[0])
+        raise AssertionError("INVALID_JSONL_SENTINEL must not validate")
+    except ValueError:
+        pass
+
+
+def test_jsonl_plain_text_with_spaces_and_hyphens(tmp_path):
+    """Legitimate plain-text organisation numbers with spaces and hyphens
+    must still be accepted."""
+    p = tmp_path / "companies.jsonl"
+    p.write_text(
+        "\n".join(
+            [
+                "989061593",
+                "923 609 016",
+                "923-609-016",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    raw = load_input_organisations(p)
+    assert raw == ["989061593", "923 609 016", "923-609-016"]
+    # All must validate as organisation numbers.
+    for r in raw:
+        try:
+            validate_org_number(r)
+        except ValueError:
+            raise AssertionError(f"Legitimate plain-text org number rejected: {r!r}")
+
+
+def test_jsonl_valid_jsonl_objects_still_work(tmp_path):
+    """Valid JSONL objects must still extract only organisation_number."""
+    p = tmp_path / "companies.jsonl"
+    p.write_text(
+        "\n".join(
+            [
+                '{"organisation_number": "989061593"}',
+                '{"organisation_number": "923609016", "name": "Test"}',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    raw = load_input_organisations(p)
+    assert raw == ["989061593", "923609016"]
