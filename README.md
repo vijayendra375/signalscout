@@ -8,7 +8,7 @@ and SHA-256 content hash to every published claim, and emits exactly one
 terminal JSONL envelope per input.
 
 - **Total third-party cost:** $0.00 (no paid APIs, no paid model required).
-- **Zero wrong-company publications:** enforced by an Identity Firewall.
+- **Conservative identity gating:** website claims are held back unless the Identity Firewall accepts the company match.
 - **Honest absence:** missing data is `not_available`, never a fabricated `0`.
 - **Offline-testable:** the test suite makes no network calls and needs no keys.
 
