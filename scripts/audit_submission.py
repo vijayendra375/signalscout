@@ -12,9 +12,10 @@ import json
 import math
 import re
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -54,8 +55,8 @@ def _valid_timestamp(value: str) -> bool:
     if not isinstance(value, str) or not value.strip():
         return False
     try:
-        datetime.fromisoformat(value.replace("Z", "+00:00"))
-        return True
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return parsed.tzinfo is not None and parsed.utcoffset() == timedelta(0)
     except ValueError:
         return False
 
@@ -91,8 +92,11 @@ def audit_output(input_ids: list[str], output_path: str | Path) -> tuple[dict[st
         evidence_by_id = {ev.id: ev for ev in env.evidence}
         if len(evidence_by_id) != len(env.evidence):
             evidence_errors += 1
+        if not _valid_timestamp(env.run.started_at) or not _valid_timestamp(env.run.completed_at):
+            evidence_errors += 1
         for ev in env.evidence:
-            if not ev.source_url.startswith(("https://", "http://")):
+            parsed_url = urlparse(ev.source_url)
+            if parsed_url.scheme not in {"https", "http"} or not parsed_url.hostname:
                 evidence_errors += 1
             if not _valid_timestamp(ev.retrieved_at):
                 evidence_errors += 1
