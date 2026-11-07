@@ -25,7 +25,8 @@ repository and runs offline (no network, no API keys).
 | **REQ-17** | Grounded synthesis with explicit unknowns; optional model cannot invent numbers | `app.synthesis.synthesizer.Synthesizer`, `app.llm.provider.is_grounded` | `tests/llm/test_provider.py` |
 | **REQ-18** | 100-company smoke test with machine- and human-readable reports | `scripts/smoke_100.py` | Run: `python scripts/smoke_100.py` (produces `out/smoke_100_report.json`) |
 | **REQ-19** | $0 third-party cost accounting | `app.budget.tracker.BudgetTracker` | `tests/resilience/test_cost_tracker.py` |
-| **REQ-20** | Clean-machine single run command | `run.py` / `python -m app.cli` | README section 4; `python run.py --help` |\n| **REQ-21** | Submission preflight: manifest, envelope, evidence, and budget checks | `scripts/audit_submission.py` | `tests/test_submission_audit.py` |
+| **REQ-20** | Clean-machine single run command | `run.py` / `python -m app.cli` | README section 4; `python run.py --help` |
+| **REQ-21** | Submission preflight: manifest, envelope, evidence, and budget checks | `scripts/audit_submission.py` | `tests/test_submission_audit.py` |
 
 ## Notes on status
 
@@ -33,5 +34,7 @@ repository and runs offline (no network, no API keys).
 - REQ-18 is exercised by a live 100-company smoke run; the committed machine
   report is `out/smoke_100_report.json` and the human summary is
   `out/smoke_100_summary.md`.
-- The offline GitHub Actions workflow runs the test suite and validates the committed 100-company manifest.\n- The submission preflight is structural only; it does not claim complete recall or prove source correctness.\n- A model provider is intentionally **optional** (REQ-17). The default is fully
+- The offline GitHub Actions workflow runs the test suite and validates the committed 100-company manifest.
+- The submission preflight is structural only; it does not claim complete recall or prove source correctness.
+- A model provider is intentionally **optional** (REQ-17). The default is fully
   deterministic; the numeric grounding guard is unit-tested.
