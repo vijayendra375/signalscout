@@ -141,6 +141,8 @@ def audit_run_report(
             errors.append("Run report input_count and emitted_envelopes do not match.")
         if not math.isfinite(cost) or cost < 0:
             errors.append("Run report contains an invalid third-party cost.")
+        if requests < 0 or elapsed_ms < 0:
+            errors.append("Run report contains a negative request count or runtime.")
         if requests > max_requests:
             errors.append(f"Request budget exceeded: {requests} > {max_requests}.")
         if elapsed_ms > max_runtime_seconds * 1000:
@@ -148,6 +150,8 @@ def audit_run_report(
         if cost > max_cost_usd:
             errors.append(f"Third-party cost exceeded: ${cost:.4f} > ${max_cost_usd:.4f}.")
         return {
+            "input_count": report.get("input_count"),
+            "emitted_envelopes": report.get("emitted_envelopes"),
             "requests": requests,
             "elapsed_ms": elapsed_ms,
             "third_party_cost_usd": cost,
@@ -187,6 +191,10 @@ def main() -> None:
         )
         result["run_report"] = report_summary
         errors.extend(report_errors)
+        if report_summary.get("input_count") != len(input_ids):
+            errors.append("Run report input_count does not match the validated input manifest.")
+        if report_summary.get("emitted_envelopes") != len(input_ids):
+            errors.append("Run report emitted_envelopes does not match the validated input manifest.")
 
     result["errors"] = errors
     result["passed"] = not errors
