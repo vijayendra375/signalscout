@@ -131,6 +131,10 @@ def audit_run_report(
         requests = int(budget.get("requests", 0))
         elapsed_ms = int(report.get("elapsed_ms", budget.get("runtime_ms", 0)))
         cost = float(budget.get("third_party_cost_usd", 0.0))
+        if report.get("validation", {}).get("passed") is not True:
+            errors.append("Run report does not record a passing batch validation.")
+        if report.get("emitted_envelopes") != report.get("input_count"):
+            errors.append("Run report input_count and emitted_envelopes do not match.")
         if not math.isfinite(cost) or cost < 0:
             errors.append("Run report contains an invalid third-party cost.")
         if requests > max_requests:
