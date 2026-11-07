@@ -587,3 +587,27 @@ def test_jsonl_valid_jsonl_objects_still_work(tmp_path):
     )
     raw = load_input_organisations(p)
     assert raw == ["989061593", "923609016"]
+
+
+def test_pipeline_exception_envelope_has_valid_timestamps(tmp_path, monkeypatch):
+    """Fault-isolated failures must still satisfy mandatory run metadata."""
+    from datetime import datetime
+
+    runner = BatchRunner(max_workers=1, db_path=str(tmp_path / "failure.db"))
+
+    def fail_research(*args, **kwargs):
+        raise RuntimeError("simulated pipeline failure")
+
+    monkeypatch.setattr(runner.pipeline, "research_company", fail_research)
+    envelopes = runner.run_batch(
+        orgs=["989061593"],
+        output_path=tmp_path / "failed.jsonl",
+        run_id="failure-test",
+    )
+
+    assert len(envelopes) == 1
+    envelope = envelopes[0]
+    assert envelope.run.terminal_status == "failed"
+    assert envelope.errors[0].code == "PIPELINE_EXCEPTION"
+    assert datetime.fromisoformat(envelope.run.started_at.replace("Z", "+00:00"))
+    assert datetime.fromisoformat(envelope.run.completed_at.replace("Z", "+00:00"))
