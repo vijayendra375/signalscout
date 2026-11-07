@@ -1,0 +1,32 @@
+name: SignalScout quality gates
+
+on:
+  push:
+    branches:
+      - master
+      - "feature/**"
+      - "peak/**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+      - name: Run offline test suite
+        run: python -m pytest -q
+      - name: Validate committed 100-company input manifest
+        run: python scripts/audit_submission.py --input data/smoke_100_companies.jsonl --expected-count 100
