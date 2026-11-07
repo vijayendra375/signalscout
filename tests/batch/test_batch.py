@@ -595,7 +595,9 @@ def test_pipeline_exception_envelope_has_valid_timestamps(tmp_path, monkeypatch)
 
     runner = BatchRunner(max_workers=1, db_path=str(tmp_path / "failure.db"))
 
-    def fail_research(*args, **kwargs):
+    def fail_research(target_org, *args, **kwargs):
+        # Simulate the pipeline entering its budget scope before failing.
+        runner.request_budget.start_company(target_org)
         raise RuntimeError("simulated pipeline failure")
 
     monkeypatch.setattr(runner.pipeline, "research_company", fail_research)
