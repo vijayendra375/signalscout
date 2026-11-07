@@ -48,20 +48,25 @@ python run.py --input data/smoke_100_companies.jsonl \
 
 ## 5. Final preflight audit
 
-Run the structural preflight against the exact evaluator input and outputs:
+The current challenge page asks for a **100-company smoke-test result or run
+report**. Builderr supplies the official evaluation batch; do not create a
+substitute manifest or submit precomputed profiles instead of the runnable
+agent.
+
+Audit the included smoke run:
 
 ```bash
 python scripts/audit_submission.py \
-  --input <evaluator-input.jsonl> \
-  --expected-count 1000 \
-  --output <evaluator-output.jsonl> \
-  --report <evaluator-report.json>
+  --input data/smoke_100_companies.jsonl \
+  --expected-count 100 \
+  --output out/smoke_100_envelopes.jsonl \
+  --report out/smoke_100_report.json
 ```
 
-Use the evaluator's actual frozen batch size (the official rules specify 1,000
-to 1,100 records); do not manufacture a substitute dataset. A passing preflight
-checks structural integrity and declared limits, not information recall or
-source correctness. Those still require separate review.
+When Builderr supplies an official input file, use that exact file and the
+matching output/report from the same run, setting `--expected-count` to its
+actual count. The audit checks structural integrity and configured limits; it
+does not measure information recall or prove source correctness.
 
 ## 6. Model / API declaration
 - Registry data: Brønnøysundregistrene public REST APIs (no auth).
