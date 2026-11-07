@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - master
-      - "feature/**"
-      - "peak/**"
   pull_request:
   workflow_dispatch:
 
