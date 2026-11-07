@@ -192,8 +192,11 @@ class BatchRunner:
                 env = self.pipeline.research_company(target_org, run_id=run_id)
                 return target_org, env
             except Exception as exc:
-                # Fault isolation for an otherwise valid company. The target is
-                # already a validated identifier, so no placeholder is needed.
+                # Fault isolation for an otherwise valid company. Ensure any
+                # reservation is released even if the pipeline failed before
+                # entering its own cleanup block. RequestBudget completion is
+                # idempotent, so this is safe after an inner finally as well.
+                self.request_budget.complete_company(target_org)
                 failed_at = utc_now()
                 err_env = TerminalEnvelope(
                     organisation_number=target_org,
