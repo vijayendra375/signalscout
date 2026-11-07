@@ -11,7 +11,7 @@ from app.budget.request_budget import RequestBudget
 from app.budget.tracker import BudgetTracker
 from app.config.settings import settings
 from app.fetching.http_client import SafeHttpClient
-from app.identity.validator import normalize_org_number
+from app.identity.validator import validate_org_number
 from app.output.models import TerminalEnvelope, ErrorRecord, RunMetadata, Operations
 from app.output.serializer import validate_batch_envelopes, write_jsonl
 from app.storage.db import StorageDB
@@ -19,40 +19,63 @@ from .pipeline import CompanyPipeline
 
 
 def load_input_organisations(path: str | Path) -> List[str]:
-    """Read organisation numbers from JSON, JSONL, or text file."""
+    """Read organisation numbers from JSON, JSONL, or text file.
+
+    Raw input values are preserved (no normalization, deduplication, or
+    dropping) so that malformed records survive into ``run_batch`` diagnostics
+    instead of silently disappearing. Valid organisation numbers are still
+    validated and deduplicated by ``run_batch``.
+    """
     p = Path(path)
     text = p.read_text(encoding="utf-8")
-    
-    orgs = []
+
+    raw_values: List[str] = []
     if p.suffix == ".json":
         data = json.loads(text)
         items = data if isinstance(data, list) else data.get("organisation_numbers", [])
         for item in items:
             raw = item.get("organisation_number") if isinstance(item, dict) else item
-            orgs.append(normalize_org_number(raw))
+            raw_values.append("" if raw is None else str(raw))
     elif p.suffix == ".jsonl":
         for line in text.splitlines():
             line = line.strip()
             if not line:
                 continue
-            item = json.loads(line)
-            raw = item.get("organisation_number") if isinstance(item, dict) else item
-            orgs.append(normalize_org_number(raw))
+            # Lines that look like JSON objects/arrays must parse as JSON.
+            # Malformed JSON is rejected outright — never fall back to extracting
+            # digits from a malformed JSON object or array.
+            if line.startswith("{") or line.startswith("["):
+                try:
+                    item = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raw_values.append(f"__INVALID_JSONL__:{line}")
+                    continue
+                raw = item.get("organisation_number") if isinstance(item, dict) else ""
+                raw_values.append("" if raw is None else str(raw))
+            else:
+                # Plain-text line: treat as a raw organisation number candidate.
+                raw_values.append(line)
     else:
         for line in text.splitlines():
-            line = line.strip()
-            if line:
-                orgs.append(normalize_org_number(line))
-                
-    # Deduplicate while preserving order
-    seen = set()
-    unique_orgs = []
+            raw_values.append(line.strip())
+
+    return raw_values
+
+
+def count_startable_orgs(orgs: List[str]) -> int:
+    """Count organisations that pass validation and will enter the lifecycle.
+
+    Invalid organisation numbers are rejected before envelope creation and must
+    not reserve a fair-share slot or enter the published dataset.
+    """
+    count = 0
     for org in orgs:
-        if org and org not in seen:
-            seen.add(org)
-            unique_orgs.append(org)
-            
-    return unique_orgs
+        try:
+            validate_org_number(org)
+        except Exception:
+            continue
+        count += 1
+    return count
 
 
 class BatchRunner:
@@ -80,6 +103,8 @@ class BatchRunner:
             request_budget=self.request_budget,
         )
         self.progress_callback = progress_callback
+        self.valid_orgs: List[str] = []
+        self.invalid_inputs: List[dict[str, str]] = []
 
     def run_batch(
         self,
@@ -89,31 +114,57 @@ class BatchRunner:
         resume: bool = False,
     ) -> List[TerminalEnvelope]:
         output_file = Path(output_path)
+
+        # 1. Reject malformed identifiers before any profile/submission output
+        #    exists. Diagnostics are retained separately and never become
+        #    company envelopes, evidence, changes, or published dataset rows.
+        valid_orgs: List[str] = []
+        invalid_inputs: List[dict[str, str]] = []
+        seen_valid: set[str] = set()
+        for raw in orgs:
+            try:
+                org = validate_org_number(raw)
+            except ValueError as exc:
+                invalid_inputs.append({"input": str(raw), "reason": str(exc)})
+                continue
+            if org not in seen_valid:
+                seen_valid.add(org)
+                valid_orgs.append(org)
+
+        self.valid_orgs = valid_orgs
+        self.invalid_inputs = invalid_inputs
+
         existing_envelopes: dict[str, TerminalEnvelope] = {}
-        
-        # 1. Resume existing envelopes if requested
+
+        # 2. Resume existing envelopes if requested, but only for valid inputs.
         if resume and output_file.exists():
             try:
                 for line in output_file.read_text(encoding="utf-8").splitlines():
                     if line.strip():
                         item = json.loads(line)
                         env = TerminalEnvelope.model_validate(item)
-                        existing_envelopes[env.organisation_number] = env
+                        if env.organisation_number in seen_valid:
+                            existing_envelopes[env.organisation_number] = env
             except Exception:
                 pass
 
-        pending_orgs = [org for org in orgs if org not in existing_envelopes]
+        pending_orgs = [org for org in valid_orgs if org not in existing_envelopes]
         results_by_org: dict[str, TerminalEnvelope] = dict(existing_envelopes)
 
-        total = len(orgs)
+        total = len(valid_orgs)
         completed_count = len(existing_envelopes)
+
+        # Set total company count for fair request budget allocation. Invalid
+        # identifiers never enter this count or the completion lifecycle.
+        self.request_budget.set_total_companies(len(pending_orgs))
 
         def worker(target_org: str) -> tuple[str, TerminalEnvelope]:
             try:
                 env = self.pipeline.research_company(target_org, run_id=run_id)
                 return target_org, env
             except Exception as exc:
-                # Fault isolation: produce a failed envelope rather than breaking batch
+                # Fault isolation for an otherwise valid company. The target is
+                # already a validated identifier, so no placeholder is needed.
                 err_env = TerminalEnvelope(
                     organisation_number=target_org,
                     run=RunMetadata(run_id=run_id, started_at="", completed_at="", terminal_status="failed"),
@@ -140,13 +191,13 @@ class BatchRunner:
                     if completed_count % settings.checkpoint_every == 0 or completed_count == total:
                         current_ordered = [
                             results_by_org[o].to_contract_dict()
-                            for o in orgs
+                            for o in valid_orgs
                             if o in results_by_org
                         ]
                         write_jsonl(output_file, current_ordered)
 
-        # Final ordered write
-        final_envelopes = [results_by_org[org] for org in orgs]
+        # Final ordered write: only validated company profiles are published.
+        final_envelopes = [results_by_org[org] for org in valid_orgs if org in results_by_org]
         contract_dicts = [e.to_contract_dict() for e in final_envelopes]
         write_jsonl(output_file, contract_dicts)
 

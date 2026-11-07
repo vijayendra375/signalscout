@@ -44,3 +44,9 @@ def test_validate_org_number_failure():
         
     with pytest.raises(ValueError):
         validate_org_number("923609017")  # invalid checksum
+
+    with pytest.raises(ValueError):
+        validate_org_number("000000000")  # literal placeholder is not an identity
+
+    with pytest.raises(ValueError):
+        validate_org_number("not-an-org")

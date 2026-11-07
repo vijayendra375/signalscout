@@ -6,6 +6,7 @@ import re
 import unicodedata
 from enum import Enum
 from typing import Any, List, Optional
+from urllib.parse import urlsplit
 from pydantic import BaseModel, Field
 
 from .validator import normalize_org_number
@@ -32,6 +33,71 @@ class IdentityAssessment(BaseModel):
     matched_domain: bool = False
     rejection_reason: Optional[str] = None
     signals: List[IdentitySignal] = Field(default_factory=list)
+
+
+def _normalize_idna_hostname(hostname: str | None) -> str:
+    """Lowercase, IDNA-encode and structurally validate a hostname."""
+    if not hostname:
+        return ""
+    host = hostname.strip().rstrip(".")
+    if not host:
+        return ""
+    try:
+        host = host.lower().encode("idna").decode("ascii")
+    except (UnicodeError, UnicodeEncodeError):
+        return ""
+    if not host or len(host) > 253:
+        return ""
+    labels = host.split(".")
+    if any(not label or len(label) > 63 for label in labels):
+        return ""
+    for label in labels:
+        if not re.fullmatch(r"[a-z0-9-]+", label):
+            return ""
+        if label.startswith("-") or label.endswith("-"):
+            return ""
+    return host
+
+
+def normalize_hostname(value: str | None) -> str:
+    """Extract a comparable hostname from a URL or bare host.
+
+    User-info, ports and paths are discarded by URL parsing. Any URL that
+    contains user-info is rejected rather than interpreted, because it is a
+    common way to disguise the real destination host.
+    """
+    if not value:
+        return ""
+    raw = str(value).strip()
+    if not raw:
+        return ""
+    try:
+        parsed = urlsplit(raw if "://" in raw else "//" + raw)
+    except ValueError:
+        return ""
+    if parsed.username is not None or parsed.password is not None or "@" in parsed.netloc:
+        return ""
+    return _normalize_idna_hostname(parsed.hostname)
+
+
+def _canonical_domain(host: str) -> str:
+    """Treat the conventional ``www.`` label as optional, nothing else."""
+    return host[4:] if host.startswith("www.") else host
+
+
+def domain_matches(page_url: str | None, official_domain: str | None) -> bool:
+    """True only for exact host equality or a dot-delimited subdomain boundary.
+
+    The page host must be the official host or a real child of it. Substring
+    matches, lookalike suffixes and user-info tricks must never pass.
+    """
+    page_host = normalize_hostname(page_url)
+    official_host = normalize_hostname(official_domain)
+    if not page_host or not official_host:
+        return False
+    page = _canonical_domain(page_host)
+    official = _canonical_domain(official_host)
+    return page == official or page.endswith("." + official)
 
 
 def normalize_text_for_comparison(text: str | None) -> str:
@@ -103,17 +169,14 @@ class IdentityFirewall:
             
         # 2. Check for domain match with registry-registered website
         matched_domain = False
-        if official_domain:
-            norm_official = official_domain.lower().replace("https://", "").replace("http://", "").strip("/")
-            norm_page = page_url.lower().replace("https://", "").replace("http://", "").strip("/")
-            if norm_official in norm_page or norm_page in norm_official:
-                matched_domain = True
-                signals.append(IdentitySignal(
-                    signal_type="official_domain_match",
-                    is_positive=True,
-                    description=f"Page URL matches registry official domain {official_domain}",
-                    weight=2.5,
-                ))
+        if official_domain and domain_matches(page_url, official_domain):
+            matched_domain = True
+            signals.append(IdentitySignal(
+                signal_type="official_domain_match",
+                is_positive=True,
+                description=f"Page URL host matches registry official domain {official_domain}",
+                weight=2.5,
+            ))
 
         # 3. Check for legal name match
         norm_target_name = normalize_text_for_comparison(target_legal_name)

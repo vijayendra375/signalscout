@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
-from app.output.models import Claim
+from app.output.models import AvailabilityState, Claim
 from app.verification.validator import create_claim_record
 
 
-def extract_company_record(raw_entity: Optional[dict[str, Any]], evidence_id: Optional[str]) -> List[Claim]:
+def extract_company_record(
+    raw_entity: Optional[dict[str, Any]],
+    evidence_id: Optional[str],
+    forced_availability: Optional[AvailabilityState] = None,
+) -> List[Claim]:
     """Extract claims belonging to the official Company Record category."""
     claims: List[Claim] = []
     eids = [evidence_id] if evidence_id else []
@@ -25,7 +29,7 @@ def extract_company_record(raw_entity: Optional[dict[str, Any]], evidence_id: Op
             "adverse_status",
         ]
         for f in fields:
-            claims.append(create_claim_record(f, None, []))
+            claims.append(create_claim_record(f, None, [], forced_availability=forced_availability))
         return claims
 
     # 1. Legal Name

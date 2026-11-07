@@ -20,6 +20,10 @@ def is_valid_mod11(digits: str) -> bool:
     """Verify that a 9-digit string satisfies the Norwegian Modulus 11 control digit algorithm."""
     if len(digits) != 9 or not digits.isdigit():
         return False
+    # 000000000 satisfies the arithmetic trivially but is not a company
+    # identity; it is reserved here as an invalid/placeholder value.
+    if digits == "000000000":
+        return False
     
     first_eight = [int(c) for c in digits[:8]]
     control_digit = int(digits[8])

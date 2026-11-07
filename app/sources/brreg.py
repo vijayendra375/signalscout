@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -23,12 +24,26 @@ BRREG_ACCOUNT_YEARS = BRREG_BASE + "/regnskapsregisteret/regnskap/aarsregnskap/k
 # financial extraction. Always request JSON explicitly for Brreg API calls.
 BRREG_ACCEPT_JSON = {"Accept": "application/json"}
 
-ACCOUNTING_OBLIGATION_SOURCE = (
-    "https://www.brreg.no/en/submission-of-annual-accounts/reporting-obligations-to-the-register-of-company-accounts/"
-    "who-has-an-accounting-obligation/"
-)
 ALWAYS_ACCOUNTING_OBLIGED_FORMS = {"AS", "ASA", "BRL", "BBL", "STI", "SF", "VPFO"}
 THRESHOLD_OR_ACTIVITY_FORMS = {"ENK", "ANS", "DA", "SA", "FLI", "ESEK", "NUF", "UTLA", "ORGL", "SAM", "SPA", "KS", "BO"}
+
+# The Norwegian accounting obligation is defined by the Bokføringsloven and the
+# annual-accounts regulation. SignalScout has no live, versioned feed of that
+# rule set, so rule-based classifications below are LOCAL INFERENCES from the
+# retrieved Brreg legal form -- not citations to a retrieved rule source.
+# ``inference_confidence`` values are conservative priors, not measured certainty.
+# Only ``filing_observed`` (a directly retrieved filing) carries full confidence.
+
+ACCOUNTING_RULE_NOTE = (
+    "Legal-form accounting rule is a local inference; no authoritative, "
+    "versioned rule source was retrieved. Not a directly observed filing fact."
+)
+
+INFERENCE_CONFIDENCE = {
+    "required_by_legal_form": 0.5,
+    "threshold_or_activity_dependent": 0.5,
+    "special_rule_or_review_required": 0.4,
+}
 
 
 def _xml_to_python(element: ET.Element) -> Any:
@@ -82,13 +97,21 @@ class BrregAdapter:
 
     def __init__(self, http_client: Optional[SafeHttpClient] = None) -> None:
         self.client = http_client or SafeHttpClient()
+        # Per-thread flag so a redirect hop denied by the request budget can be
+        # distinguished from an ordinary 404/network failure by the orchestrator.
+        self._local = threading.local()
 
     def _fetch_json(self, url: str) -> Tuple[Optional[Any], Optional[FetchResult]]:
         res = self.client.fetch(url, headers=BRREG_ACCEPT_JSON)
+        self._local.blocked_by_budget = bool(res.blocked_by_budget)
         if res.status_code != 200:
             return None, res
         payload = parse_brreg_payload(res)
         return payload, res
+
+    def last_fetch_blocked_by_budget(self) -> bool:
+        """True when the most recent fetch on this thread was stopped by the budget."""
+        return bool(getattr(self._local, "blocked_by_budget", False))
 
     def fetch_entity(self, org: str, evidence_store: EvidenceStore) -> Tuple[Optional[dict[str, Any]], Optional[str]]:
         """Fetch primary entity record from Enhetsregisteret."""
@@ -169,32 +192,65 @@ class BrregAdapter:
         cls,
         legal_form: Optional[str],
         has_filed_accounts: bool,
-        evidence_store: EvidenceStore,
-    ) -> Tuple[dict[str, str], str]:
-        """Classify statutory accounting obligations without guessing."""
+    ) -> dict[str, Any]:
+        """Classify statutory accounting obligations without fabricating evidence.
+
+        The returned ``basis`` distinguishes a claim observed in a retrieved
+        filing from a local rule applied to the retrieved legal form. Rule-based
+        results are labeled as inferences and carry no rule-source evidence; the
+        caller must not present them as directly observed filing facts.
+        """
         form = (legal_form or "").upper()
         if has_filed_accounts:
             classification = "filing_observed"
+            basis = "retrieved_filing"
             reason = "The official registry reports an annual-account filing."
+            rule_source = None
+            effective_date = None
+            applicability = "Directly observed annual-account filing in Regnskapsregisteret."
+            inference_confidence = 1.0
         elif form in ALWAYS_ACCOUNTING_OBLIGED_FORMS:
             classification = "required_by_legal_form"
-            reason = f"Brreg lists organisation form {form} as always subject to accounting obligation."
+            basis = "legal_form_rule_inference"
+            reason = f"Organisation form {form} is categorically subject to accounting obligation (local inference)."
+            rule_source = None
+            effective_date = None
+            applicability = (
+                f"Legal form {form}: always accounting-obliged under Norwegian "
+                "rules (inference; no rule source retrieved)."
+            )
+            inference_confidence = INFERENCE_CONFIDENCE[classification]
         elif form in THRESHOLD_OR_ACTIVITY_FORMS:
             classification = "threshold_or_activity_dependent"
-            reason = "Accounting obligation depends on statutory size, turnover, partner, or supervision thresholds."
+            basis = "legal_form_rule_inference"
+            reason = "Accounting obligation depends on statutory size, turnover, partner, or supervision thresholds (local inference)."
+            rule_source = None
+            effective_date = None
+            applicability = (
+                f"Legal form {form}: threshold-dependent accounting obligation "
+                "(inference; no rule source retrieved)."
+            )
+            inference_confidence = INFERENCE_CONFIDENCE[classification]
         else:
             classification = "special_rule_or_review_required"
-            reason = "Entity form is subject to special legal provisions."
+            basis = "legal_form_rule_inference"
+            reason = "Entity form is subject to special legal provisions (local inference)."
+            rule_source = None
+            effective_date = None
+            applicability = (
+                f"Legal form {form}: special provisions apply "
+                "(inference; no rule source retrieved)."
+            )
+            inference_confidence = INFERENCE_CONFIDENCE[classification]
 
-        result = {
+        return {
             "classification": classification,
             "legal_form": form or "UNKNOWN",
             "reason": reason,
+            "basis": basis,
+            "rule_source": rule_source,
+            "effective_date": effective_date,
+            "applicability": applicability,
+            "inference_confidence": inference_confidence,
+            "note": ACCOUNTING_RULE_NOTE if basis == "legal_form_rule_inference" else None,
         }
-        ev = evidence_store.add(
-            source_url=ACCOUNTING_OBLIGATION_SOURCE,
-            source_class=SourceClass.OFFICIAL_REGISTRY,
-            content=json.dumps(result).encode(),
-            claim_span=f"Accounting obligation: {classification} ({reason})",
-        )
-        return result, ev.id

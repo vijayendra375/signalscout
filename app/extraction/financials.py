@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
-from app.output.models import Claim
+from app.output.models import AvailabilityState, Claim
 from app.verification.validator import create_claim_record, normalize_metric
 
 
@@ -15,7 +15,11 @@ def _get_nested(data: Any, *keys: str) -> Any:
     return data
 
 
-def extract_financials(raw_accounts: Optional[list[dict[str, Any]]], evidence_id: Optional[str]) -> List[Claim]:
+def extract_financials(
+    raw_accounts: Optional[list[dict[str, Any]]],
+    evidence_id: Optional[str],
+    forced_availability: Optional[AvailabilityState] = None,
+) -> List[Claim]:
     """Extract claims belonging to the Financials category."""
     claims: List[Claim] = []
     eids = [evidence_id] if evidence_id else []
@@ -30,7 +34,7 @@ def extract_financials(raw_accounts: Optional[list[dict[str, Any]]], evidence_id
             "financial_currency", "latest_reporting_period"
         ]
         for f in fields:
-            claims.append(create_claim_record(f, None, []))
+            claims.append(create_claim_record(f, None, [], forced_availability=forced_availability))
         return claims
 
     # Sort records chronologically descending by reporting period tilDato or year

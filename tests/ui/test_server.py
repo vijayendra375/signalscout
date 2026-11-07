@@ -172,6 +172,71 @@ def test_lookup_stores_envelope(server_with_mock):
     assert server.looked_up["989061593"].organisation_number == "989061593"
 
 
+def test_ui_lookup_completes_company_exactly_once():
+    """F6: standalone UI lookup uses the same single completion lifecycle."""
+    from app.fetching.http_client import FetchResult
+    from app.orchestrator.pipeline import CompanyPipeline
+
+    class _Client:
+        def __init__(self):
+            self.count = 0
+
+        def start_request_count(self):
+            self.count = 0
+
+        def request_count(self):
+            return self.count
+
+        def budget_denied_count(self):
+            return 0
+
+        def fetch(self, url, **kwargs):
+            self.count += 1
+            if url.endswith("/enheter/989061593"):
+                body = json.dumps(
+                    {
+                        "organisasjonsnummer": "989061593",
+                        "navn": "Test Company AS",
+                        "organisasjonsform": {"kode": "AS"},
+                    }
+                )
+                return FetchResult(
+                    url=url,
+                    status_code=200,
+                    content=body.encode(),
+                    text=body,
+                    content_type="application/json",
+                    elapsed_ms=1.0,
+                    bytes_received=len(body),
+                )
+            return FetchResult(
+                url=url,
+                status_code=404,
+                content=b"",
+                text="",
+                content_type="text/plain",
+                elapsed_ms=1.0,
+                bytes_received=0,
+            )
+
+    server = LookupServer(host="127.0.0.1", port=0)
+    budget = RequestBudget(global_limit=50, per_company_limit=12, deadline_seconds=None)
+    budget.set_total_companies(1)
+    server.budget = budget
+    server.pipeline = CompanyPipeline(
+        http_client=_Client(), db=None, budget_tracker=None, request_budget=budget
+    )
+
+    # Invalid input never starts the lifecycle.
+    with pytest.raises(ValueError):
+        server.lookup("123")
+    assert budget.completed_companies == 0
+
+    env = server.lookup("989061593")
+    assert env.run.terminal_status == "completed"
+    assert budget.completed_companies == 1
+
+
 # ------------------------------------------------------------------
 # Budget enforcement tests
 # ------------------------------------------------------------------

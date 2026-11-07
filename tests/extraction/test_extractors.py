@@ -255,3 +255,40 @@ def test_financials_retains_period_and_currency():
     assert by["financial_currency"].value == "EUR"
     assert by["financial_currency"].availability == AvailabilityState.AVAILABLE
     assert by["latest_reporting_period"].value == {"fraDato": "2024-01-01", "tilDato": "2024-12-31"}
+
+
+def test_extractor_type_hints_resolve_availability_state():
+    """F2: AvailabilityState must be importable for resolved type hints."""
+    import typing
+
+    hints_fin = typing.get_type_hints(extract_financials)
+    hints_people = typing.get_type_hints(extract_people_and_locations)
+
+    assert hints_fin["forced_availability"] is not None
+    assert hints_people["forced_availability"] is not None
+
+
+def test_group_forced_availability_is_isolated():
+    """F3: a budget-denied group source must not mark people/subunit claims BLOCKED."""
+    raw_roles = [{
+        "type": {"kode": "DAGL", "beskrivelse": "Daglig leder"},
+        "roller": [{
+            "type": {"kode": "DAGL", "beskrivelse": "Daglig leder"},
+            "person": {"navn": {"fornavn": "Kari", "etternavn": "Nordmann"}},
+        }],
+    }]
+    claims = extract_people_and_locations(
+        raw_roles,
+        "ev-roles",
+        [],
+        "ev-subunits",
+        None,
+        None,
+        forced_availability=None,
+        group_forced_availability=AvailabilityState.BLOCKED,
+    )
+    by = {c.field: c for c in claims}
+
+    assert by["managing_director"].availability == AvailabilityState.AVAILABLE
+    assert by["workplaces_count"].availability == AvailabilityState.AVAILABLE
+    assert by["parent_entity"].availability == AvailabilityState.BLOCKED

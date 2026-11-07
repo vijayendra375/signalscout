@@ -57,8 +57,15 @@ def main() -> None:
     )
     print()
 
-    # Validate output contract invariants
-    validation = validate_batch_envelopes(envelopes, expected_count=len(orgs))
+    if runner.invalid_inputs:
+        print(
+            f"[!] Rejected {len(runner.invalid_inputs)} malformed organisation number(s); "
+            "they were not published as company profiles.",
+            file=sys.stderr,
+        )
+
+    # Validate output contract invariants against validated inputs.
+    validation = validate_batch_envelopes(envelopes, expected_count=len(runner.valid_orgs))
     
     # Generate dashboard
     if args.dashboard:

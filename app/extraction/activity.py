@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.documents.html_parser import ParsedHtml
@@ -29,6 +30,58 @@ def _iter_structured(parsed: ParsedHtml) -> List[dict[str, Any]]:
             if isinstance(graph, list):
                 items.extend([g for g in graph if isinstance(g, dict)])
     return items
+
+
+def _is_job_posting_expired(valid_through: Optional[str]) -> bool:
+    """Return True if a JobPosting's validThrough date is in the past.
+
+    Returns False if validThrough is missing or unparseable (treat as
+    potentially active rather than rejecting silently).
+    """
+    if not valid_through or not isinstance(valid_through, str):
+        return False
+    try:
+        # ISO 8601 parsing: handle trailing Z and timezone offsets
+        dt_str = valid_through.strip()
+        if dt_str.endswith("Z"):
+            dt_str = dt_str[:-1] + "+00:00"
+        dt = datetime.fromisoformat(dt_str)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt < datetime.now(timezone.utc)
+    except (ValueError, TypeError):
+        return False
+
+
+def _extract_job_location(job_loc: Any) -> Optional[str]:
+    """Extract location text from a JobPosting jobLocation field."""
+    if isinstance(job_loc, str):
+        return job_loc.strip() or None
+    if isinstance(job_loc, dict):
+        addr = job_loc.get("address")
+        if isinstance(addr, dict):
+            parts = []
+            for key in ("streetAddress", "addressLocality", "addressRegion",
+                        "postalCode", "addressCountry"):
+                val = addr.get(key)
+                if isinstance(val, str) and val.strip():
+                    parts.append(val.strip())
+            if parts:
+                return ", ".join(parts)
+        return job_loc.get("name") if isinstance(job_loc.get("name"), str) else None
+    return None
+
+
+def _extract_hiring_organization(job_item: dict) -> Optional[str]:
+    """Extract hiring organization name from a JobPosting."""
+    org = job_item.get("hiringOrganization")
+    if isinstance(org, str):
+        return org.strip() or None
+    if isinstance(org, dict):
+        name = org.get("name")
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+    return None
 
 
 def extract_hiring_and_activity(
@@ -64,21 +117,23 @@ def extract_hiring_and_activity(
             schema_type = item.get("@type")
             types = schema_type if isinstance(schema_type, list) else [schema_type]
             if "JobPosting" in types:
+                # Skip expired postings
+                valid_through = item.get("validThrough")
+                if _is_job_posting_expired(valid_through):
+                    continue
                 title = item.get("title") or item.get("name") or "Untitled Role"
                 key = (title, parsed.url)
                 if key not in seen_jobs:
                     seen_jobs.add(key)
-                    location = None
-                    job_loc = item.get("jobLocation")
-                    if isinstance(job_loc, dict):
-                        addr = job_loc.get("address")
-                        if isinstance(addr, dict):
-                            location = addr.get("addressLocality") or addr.get("addressRegion")
+                    location = _extract_job_location(item.get("jobLocation"))
+                    hiring_org = _extract_hiring_organization(item)
                     job_postings.append({
                         "title": title,
+                        "description": item.get("description"),
                         "date_posted": item.get("datePosted"),
                         "valid_through": item.get("validThrough"),
                         "employment_type": item.get("employmentType"),
+                        "hiring_organization": hiring_org,
                         "location": location,
                         "source": parsed.url,
                         "evidence_id": evidence_id,

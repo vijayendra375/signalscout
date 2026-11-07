@@ -102,8 +102,55 @@ def main() -> None:
     orgs = load_input_organisations(args.input)
     print(f"[*] Loaded {len(orgs)} companies.")
 
-    if len(orgs) < 100:
-        print(f"[!] Note: Input contains {len(orgs)} companies.")
+    # BLOCKER 1: Require exactly 100 valid, unique company inputs.
+    non_empty = [o for o in orgs if o]
+    if len(non_empty) != 100:
+        print(
+            f"[!] ERROR: Expected exactly 100 non-empty input records, "
+            f"found {len(non_empty)}.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    from app.identity.validator import validate_org_number
+
+    valid_orgs = []
+    invalid_inputs = []
+    for raw in non_empty:
+        try:
+            org = validate_org_number(raw)
+        except ValueError as exc:
+            invalid_inputs.append({"input": str(raw), "reason": str(exc)})
+            continue
+        valid_orgs.append(org)
+
+    if invalid_inputs:
+        print(
+            f"[!] ERROR: {len(invalid_inputs)} input(s) failed organisation-number "
+            f"validation:",
+            file=sys.stderr,
+        )
+        for item in invalid_inputs:
+            print(f"    - {item['input']!r}: {item['reason']}", file=sys.stderr)
+        sys.exit(1)
+
+    if len(valid_orgs) != 100:
+        print(
+            f"[!] ERROR: Expected exactly 100 valid organisation numbers, "
+            f"found {len(valid_orgs)}.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    if len(set(valid_orgs)) != 100:
+        print(
+            f"[!] ERROR: Expected exactly 100 unique organisation numbers, "
+            f"found {len(set(valid_orgs))} unique values.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    orgs = valid_orgs
 
     def on_progress(done: int, total: int, current_org: str) -> None:
         pct = (done / total) * 100
@@ -118,7 +165,7 @@ def main() -> None:
     print()
 
     elapsed_ms = int((time.time() - start_time) * 1000)
-    validation = validate_batch_envelopes(envelopes, expected_count=len(orgs))
+    validation = validate_batch_envelopes(envelopes, expected_count=100)
     budget_summary = runner.budget.summary()
 
     report_data = {

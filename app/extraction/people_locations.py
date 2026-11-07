@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
-from app.output.models import Claim
+from app.output.models import AvailabilityState, Claim
 from app.verification.validator import create_claim_record
 
 
@@ -14,12 +14,29 @@ def extract_people_and_locations(
     subunits_evidence_id: Optional[str],
     raw_group: Optional[dict[str, Any]] = None,
     group_evidence_id: Optional[str] = None,
+    forced_availability: Optional[AvailabilityState] = None,
+    group_forced_availability: Optional[AvailabilityState] = None,
+    roles_forced_availability: Optional[AvailabilityState] = None,
+    subunits_forced_availability: Optional[AvailabilityState] = None,
 ) -> List[Claim]:
-    """Extract claims for People, Locations, and Group Structure."""
+    """Extract claims for People, Locations, and Group Structure.
+
+    Roles and subunits have independent forced states: failing to retrieve one
+    source must not mark claims supported by the other source as blocked.
+    ``forced_availability`` remains as a legacy fallback for both.
+    """
     claims: List[Claim] = []
-    
-    # 1. Leadership and Roles
-    roles_eids = [roles_evidence_id] if roles_evidence_id else []
+    roles_forced = (
+        roles_forced_availability
+        if roles_forced_availability is not None
+        else forced_availability
+    )
+    subunits_forced = (
+        subunits_forced_availability
+        if subunits_forced_availability is not None
+        else forced_availability
+    )
+    eids = [roles_evidence_id] if roles_evidence_id else []
     extracted_roles = []
     managing_director = None
     board_chair = None
@@ -68,10 +85,10 @@ def extract_people_and_locations(
                     board_members.append(name)
 
     roles_checked = raw_roles is not None
-    claims.append(create_claim_record("managing_director", managing_director, roles_eids))
-    claims.append(create_claim_record("board_chair", board_chair, roles_eids))
-    claims.append(create_claim_record("board_members", board_members, roles_eids, observed=roles_checked))
-    claims.append(create_claim_record("all_roles", extracted_roles, roles_eids, observed=roles_checked))
+    claims.append(create_claim_record("managing_director", managing_director, eids, forced_availability=roles_forced))
+    claims.append(create_claim_record("board_chair", board_chair, eids, forced_availability=roles_forced))
+    claims.append(create_claim_record("board_members", board_members, eids, forced_availability=roles_forced, observed=roles_checked))
+    claims.append(create_claim_record("all_roles", extracted_roles, eids, forced_availability=roles_forced, observed=roles_checked))
 
     # 2. Operating Locations / Workplaces (Subunits)
     subunits_eids = [subunits_evidence_id] if subunits_evidence_id else []
@@ -93,8 +110,8 @@ def extract_people_and_locations(
             })
 
     workplaces_checked = raw_subunits is not None
-    claims.append(create_claim_record("workplaces_count", len(extracted_locations) if workplaces_checked else None, subunits_eids, observed=workplaces_checked))
-    claims.append(create_claim_record("operating_workplaces", extracted_locations, subunits_eids, observed=workplaces_checked))
+    claims.append(create_claim_record("workplaces_count", len(extracted_locations) if workplaces_checked else None, subunits_eids, forced_availability=subunits_forced, observed=workplaces_checked))
+    claims.append(create_claim_record("operating_workplaces", extracted_locations, subunits_eids, forced_availability=subunits_forced, observed=workplaces_checked))
 
     # 3. Group Structure
     group_eids = [group_evidence_id] if group_evidence_id else []
@@ -106,6 +123,6 @@ def extract_people_and_locations(
                 "organisation_number": parent.get("organisasjonsnummer"),
                 "name": parent.get("navn"),
             }
-    claims.append(create_claim_record("parent_entity", parent_entity, group_eids))
+    claims.append(create_claim_record("parent_entity", parent_entity, group_eids, forced_availability=group_forced_availability))
 
     return claims

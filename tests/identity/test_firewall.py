@@ -1,8 +1,12 @@
 """Unit tests for the Identity Firewall."""
 
+import pytest
+
 from app.identity.firewall import (
     IdentityDecision,
     IdentityFirewall,
+    domain_matches,
+    normalize_hostname,
     normalize_text_for_comparison,
 )
 
@@ -64,6 +68,50 @@ def test_firewall_ambiguous_quarantined():
     )
     assert assessment.decision == IdentityDecision.QUARANTINED
     assert assessment.confidence < 0.90
+
+
+@pytest.mark.parametrize(
+    "page_url",
+    [
+        "https://acme.no.attacker.example/",
+        "https://acme.no.attacker.example.evil/",
+        "https://notacme.no/",
+        "https://acme.no.evil.example/",
+        "https://attacker.example/acme.no",
+        "https://attacker.example/?next=https://acme.no",
+        "https://acme.no@attacker.example/",
+        "https://acme.no:443@attacker.example/",
+    ],
+)
+def test_firewall_rejects_domain_spoofing(page_url):
+    assert domain_matches(page_url, "acme.no") is False
+
+    assessment = IdentityFirewall.evaluate_website_evidence(
+        target_org="923609016",
+        target_legal_name="Acme AS",
+        official_domain="acme.no",
+        page_url=page_url,
+        page_text="Acme AS official website.",
+    )
+    assert assessment.matched_domain is False
+    assert assessment.decision != IdentityDecision.TRUSTED
+
+
+def test_firewall_accepts_exact_and_real_subdomains():
+    assert domain_matches("https://acme.no/about", "acme.no") is True
+    assert domain_matches("https://www.acme.no/about", "acme.no") is True
+    assert domain_matches("https://ir.acme.no/about", "acme.no") is True
+    assert domain_matches("https://ACME.NO.:8443/about", "acme.no") is True
+    assert domain_matches("https://www.acme.no/about", "https://www.acme.no/") is True
+    assert domain_matches("https://acme.no/about", "https://www.acme.no/") is True
+
+
+def test_firewall_handles_idn_hostnames_without_lookalike_false_positives():
+    assert normalize_hostname("https://bücher.example/") == "xn--bcher-kva.example"
+    assert domain_matches("https://bücher.example/", "xn--bcher-kva.example") is True
+    assert domain_matches(
+        "https://xn--bcher-kva.example.attacker.example/", "xn--bcher-kva.example"
+    ) is False
 
 
 def test_role_identity_evaluation():
