@@ -19,16 +19,42 @@ def test_no_pages_returns_not_available():
 
 
 def test_checked_site_without_signals_is_available_empty():
-    # A verified page with no jobs/news is "checked, zero found" -> available.
     page = _page("<html><body><h1>Welcome</h1><p>Ordinary content.</p></body></html>", "https://example.no/")
     claims = extract_hiring_and_activity([(page, "ev-1")])
     by = {c.field: c for c in claims}
     assert by["hiring_active"].value is False
     assert by["job_postings"].value == []
-    # "Checked, zero found" is available (with the checked page as evidence),
-    # which the contract distinguishes from a source that was not checked.
     assert by["job_postings"].availability == AvailabilityState.AVAILABLE
     assert by["job_postings"].evidence_ids == ["ev-1"]
+
+
+def test_career_navigation_link_alone_does_not_mean_actively_hiring():
+    page = _page(
+        '<html><body><a href="/karriere">Karriere</a><p>Learn about our company.</p></body></html>',
+        "https://example.no/",
+    )
+    claims = extract_hiring_and_activity([(page, "ev-careers")])
+    by = {c.field: c for c in claims}
+    assert by["hiring_active"].value is False
+    assert by["hiring_active"].availability == AvailabilityState.AVAILABLE
+
+
+def test_career_page_url_alone_does_not_mean_actively_hiring():
+    page = _page("<html><body><h1>Our team</h1></body></html>")
+    claims = extract_hiring_and_activity([(page, "ev-career-page")])
+    by = {c.field: c for c in claims}
+    assert by["hiring_active"].value is False
+
+
+def test_explicit_hiring_text_is_a_positive_signal():
+    page = _page(
+        "<html><body><h1>We are hiring</h1><p>Join our team.</p></body></html>",
+        "https://example.no/",
+    )
+    claims = extract_hiring_and_activity([(page, "ev-hiring-text")])
+    by = {c.field: c for c in claims}
+    assert by["hiring_active"].value is True
+    assert by["hiring_active"].evidence_ids == ["ev-hiring-text"]
 
 
 def test_jsonld_job_posting_extracted_with_evidence():
