@@ -611,3 +611,5 @@ def test_pipeline_exception_envelope_has_valid_timestamps(tmp_path, monkeypatch)
     assert envelope.errors[0].code == "PIPELINE_EXCEPTION"
     assert datetime.fromisoformat(envelope.run.started_at.replace("Z", "+00:00"))
     assert datetime.fromisoformat(envelope.run.completed_at.replace("Z", "+00:00"))
+    assert runner.request_budget.completed_companies == 1
+    assert runner.request_budget.total_companies == 1
