@@ -8,7 +8,7 @@ from app.output.models import (
     RunMetadata,
     TerminalEnvelope,
 )
-from scripts.audit_submission import audit_manifest, audit_output, audit_run_report
+from scripts.audit_submission import audit_manifest, audit_output, audit_run_report, _valid_timestamp
 
 
 ORG = "989061593"
@@ -125,3 +125,10 @@ def test_run_report_rejects_over_budget(tmp_path):
     _, errors = audit_run_report(path, 10, 10, 0.0)
 
     assert len(errors) == 3
+
+
+def test_evidence_timestamps_must_be_utc_and_timezone_aware():
+    assert _valid_timestamp("2026-11-07T10:00:00Z")
+    assert _valid_timestamp("2026-11-07T10:00:00+00:00")
+    assert not _valid_timestamp("2026-11-07T10:00:00")
+    assert not _valid_timestamp("2026-11-07T10:00:00+05:30")
