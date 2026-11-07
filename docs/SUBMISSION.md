@@ -19,18 +19,19 @@ exactly one terminal JSONL envelope per input plus a machine-readable report.
 
 - [x] Pinned dependencies (`requirements.txt`, `pyproject.toml`) and reproducible setup.
 - [x] Official input/output contracts implemented (`docs/EVALUATION_CONTRACT.md`).
-- [x] Identity Firewall rejecting same-name / conflicting entities.
-- [x] Coverage across all five categories (company record, financials, people &
-  locations, website, hiring & public activity).
-- [x] Immutable evidence chains with SHA-256 and verbatim spans.
+- [x] Conservative identity firewall for company-owned website claims.
+- [x] Extraction paths for all five information categories (coverage is measured separately).
+- [x] Evidence records with SHA-256 hashes, source URLs, and UTC retrieval timestamps.
 - [x] Idempotent refresh / temporal change detection (missing data is never a change).
-- [x] 100-company smoke test with machine report (`out/smoke_100_report.json`) and
-  human summary (`out/smoke_100_summary.md`).
+- [x] 100-company smoke-test script, machine report, and human summary.
 - [x] Previous-snapshot → material-change path (`scripts/diff_snapshots.py`).
 - [x] Reproducible one-command execution (`python run.py ...`).
 - [x] Declared models/APIs and source-rights assumptions (`docs/PERMITTED_SOURCES.md`,
   `docs/SOURCE_STRATEGY.md`, `docs/THREAT_MODEL.md`).
-- [x] $0 third-party cost accounting.
+- [x] $0 third-party cost on the deterministic default path.
+- [ ] Run the live smoke workflow on the final candidate commit and retain its artifact.
+- [ ] Confirm exact commit hash, one-command instructions, model/API/licence declaration,
+  expected official-run cost, and contact details before emailing the entry.
 
 ## 4. Reproduction
 
