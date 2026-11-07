@@ -113,12 +113,17 @@ and machine report. For the included smoke manifest:
 python scripts/audit_submission.py --input data/smoke_100_companies.jsonl --expected-count 100
 ```
 
-For the evaluator's frozen batch, use its supplied input file and the matching
-output/report from the same run (replace the paths below):
+For an official run, audit the exact input file Builderr supplies and the
+matching output/report from that same run. Set `--expected-count` to the
+actual number of supplied companies; do not substitute a self-selected list:
 
 ```bash
-python scripts/audit_submission.py --input evaluator-1000.jsonl --expected-count 1000 --output out/evaluator-1000.jsonl --report out/evaluator-1000-report.json
+python scripts/audit_submission.py --input <builderr-input.jsonl> --expected-count N --output out/evaluator.jsonl --report out/evaluator-report.json
 ```
+
+Builderr's current challenge page requires a 100-company smoke-test artifact
+and supplies the official evaluation batch itself. Precomputed profiles are
+not a substitute for running the agent on that supplied batch.
 
 The audit checks valid unique organisation numbers, exact input/output order,
 terminal-envelope invariants, claim-to-evidence references, evidence hashes and
