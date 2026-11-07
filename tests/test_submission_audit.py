@@ -103,6 +103,8 @@ def test_run_report_enforces_limits_and_validation(tmp_path):
 
     summary, errors = audit_run_report(path, 10, 10, 0.0)
 
+    assert summary["input_count"] == 1
+    assert summary["emitted_envelopes"] == 1
     assert summary["requests"] == 2
     assert errors == []
 
