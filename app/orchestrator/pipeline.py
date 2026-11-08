@@ -26,7 +26,7 @@ from app.extraction.financials import extract_financials
 
 from app.extraction.people_locations import extract_people_and_locations
 
-from app.extraction.website import WebsiteExtractor
+from app.extraction.website import WebsiteExtractor, registry_email_website_candidate
 
 from app.fetching.http_client import SafeHttpClient
 
@@ -415,6 +415,12 @@ class CompanyPipeline:
             # 4. Website, Digital Footprint, Hiring and Public Activity
 
             website_candidate = (raw_entity or {}).get("hjemmeside")
+            website_candidate_from_email = False
+            if not website_candidate and entity_ev_id:
+                website_candidate = registry_email_website_candidate(
+                    (raw_entity or {}).get("epostadresse")
+                )
+                website_candidate_from_email = bool(website_candidate)
 
             can_fetch_website = self.request_budget is None or self.request_budget.can_spend(1)
 
@@ -429,6 +435,8 @@ class CompanyPipeline:
                     candidate_url=website_candidate,
 
                     evidence_store=evidence_store,
+                    candidate_source_evidence_id=entity_ev_id if website_candidate_from_email else None,
+                    require_trusted_identity=website_candidate_from_email,
 
                 )
 
