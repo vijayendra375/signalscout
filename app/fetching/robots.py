@@ -73,4 +73,4 @@ class RobotsGate:
         try:
             return parser.can_fetch(self.user_agent, url)
         except Exception:
-            return True
+            return False
