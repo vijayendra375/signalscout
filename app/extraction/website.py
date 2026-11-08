@@ -39,6 +39,57 @@ SECTION_KEYWORDS = re.compile(
 
 # High-value page paths, in priority order. Used to rank sitemap-discovered URLs
 # so the most informative pages are crawled first when the page budget is tight.
+# Public mailbox / ISP domains are not reliable company website candidates.
+# A custom domain used in Brreg's official email field is a discovery hint only;
+# the fetched site must still pass strict company-identity verification.
+_PUBLIC_EMAIL_HOSTS = {
+    "gmail.com", "googlemail.com", "yahoo.com", "yahoo.no", "yahoo.co.uk",
+    "outlook.com", "outlook.no", "hotmail.com", "hotmail.no", "hotmail.co.uk",
+    "live.com", "live.no", "msn.com", "icloud.com", "me.com", "mac.com",
+    "aol.com", "protonmail.com", "proton.me", "pm.me", "tutanota.com",
+    "tuta.io", "mail.com", "gmx.com", "gmx.de", "web.de", "yandex.com",
+    "zoho.com", "fastmail.com", "hey.com", "posteo.de", "runbox.com",
+    "hushmail.com", "startmail.com", "online.no", "telenor.no",
+    "broadpark.no", "getmail.no", "chello.no", "telia.no", "telia.com",
+    "altibox.no", "wp.pl", "onet.pl", "o2.pl", "interia.pl", "poczta.onet.pl",
+    "home.pl",
+}
+
+
+def registry_email_website_candidate(email: Optional[str]) -> Optional[str]:
+    """Return a conservative website candidate from a Brreg-registered email.
+
+    The email address is an official-registry discovery hint, not proof that
+    the domain hosts the company's website. Generic mailbox/ISP domains are
+    excluded, and callers must require a trusted identity decision before
+    publishing any website claim derived this way.
+    """
+    if not isinstance(email, str) or email.count("@") != 1:
+        return None
+    local, raw_domain = email.rsplit("@", 1)
+    if not local.strip() or not raw_domain.strip():
+        return None
+    try:
+        domain = raw_domain.strip().rstrip(".").lower().encode("idna").decode("ascii")
+    except (UnicodeError, UnicodeEncodeError):
+        return None
+    if len(domain) > 253 or "." not in domain:
+        return None
+    labels = domain.split(".")
+    if any(
+        not label or len(label) > 63
+        or not re.fullmatch(r"[a-z0-9-]+", label)
+        or label.startswith("-") or label.endswith("-")
+        for label in labels
+    ):
+        return None
+    if labels[-1] in {"local", "test", "invalid", "example"}:
+        return None
+    if any(domain == host or domain.endswith("." + host) for host in _PUBLIC_EMAIL_HOSTS):
+        return None
+    return f"https://{domain}/"
+
+
 _PRIORITY_PATHS = (
     "/kontakt", "/contact", "/om-oss", "/about", "/about-us",
     "/karriere", "/careers", "/jobs", "/ledige-stillinger",
@@ -385,6 +436,8 @@ class WebsiteExtractor:
         target_legal_name: str,
         candidate_url: Optional[str],
         evidence_store: EvidenceStore,
+        candidate_source_evidence_id: Optional[str] = None,
+        require_trusted_identity: bool = False,
     ) -> WebsiteResearch:
         if not candidate_url:
             return self._unavailable()
@@ -417,8 +470,11 @@ class WebsiteExtractor:
             claim_span=f"Company website title: {parsed_html.title}. Identity decision: {assessment.decision.value}",
         )
 
-        if assessment.decision == IdentityDecision.REJECTED:
-            # Do not publish any company-owned claim for a non-matching domain.
+        if assessment.decision == IdentityDecision.REJECTED or (
+            require_trusted_identity and assessment.decision != IdentityDecision.TRUSTED
+        ):
+            # Email-domain discovery is only a hint. Publish from it only when
+            # the fetched page independently matches the legal name or org ID.
             return self._unavailable()
 
         # Extract Organization data from JSON-LD on the homepage and verify
@@ -473,8 +529,11 @@ class WebsiteExtractor:
                 pages_crawled += 1
 
         # Website identity claims
+        website_evidence_ids = [homepage_ev.id]
+        if candidate_source_evidence_id and candidate_source_evidence_id not in website_evidence_ids:
+            website_evidence_ids.append(candidate_source_evidence_id)
         claims: List[Claim] = [
-            create_claim_record("official_website", homepage_url, [homepage_ev.id], confidence=confidence),
+            create_claim_record("official_website", homepage_url, website_evidence_ids, confidence=confidence),
             create_claim_record("website_title", parsed_html.title or None, [homepage_ev.id], confidence=confidence),
             create_claim_record("website_description", parsed_html.description or None, [homepage_ev.id], confidence=confidence),
             create_claim_record("social_profiles", parsed_html.social_links, [homepage_ev.id], confidence=confidence, observed=True),
