@@ -1,10 +1,9 @@
 name: SignalScout live 100-company smoke
 
 on:
+  # Live crawls are explicit/manual only. Avoid launching duplicate 100-company
+  # runs for every small code commit while a review branch is being hardened.
   workflow_dispatch:
-  push:
-    branches:
-      - "peak/judge-score-hardening"
 
 permissions:
   contents: read
