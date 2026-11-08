@@ -2,6 +2,9 @@ name: SignalScout live 100-company smoke
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - "peak/judge-score-hardening"
 
 permissions:
   contents: read
