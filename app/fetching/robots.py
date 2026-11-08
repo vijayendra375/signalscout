@@ -13,8 +13,9 @@ from app.fetching.http_client import SafeHttpClient
 class RobotsGate:
     """Fetches and caches robots.txt policies, and answers crawl-permission queries.
 
-    A missing robots.txt is treated as permissive (standard convention); an
-    unreachable robots.txt fails closed for non-homepage paths to stay lawful.
+    A missing robots.txt (404/410) is treated as having no published policy.
+    Explicit disallow rules and robots retrieval failures fail closed for every
+    URL, including the homepage.
     """
 
     def __init__(self, client: SafeHttpClient, user_agent: str) -> None:
