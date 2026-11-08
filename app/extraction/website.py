@@ -121,7 +121,7 @@ class WebsiteExtractor:
         return WebsiteResearch(claims=claims, activity_claims=activity)
 
     def _blocked(self) -> WebsiteResearch:
-        """Website work was prevented by the request/time budget, not by the source."""
+        """Website work was blocked by robots policy or the request/time budget."""
         website_fields = [
             "official_website", "website_title", "website_description",
             "social_profiles", "contact_email", "contact_phone", "website_pages_crawled",
@@ -444,6 +444,12 @@ class WebsiteExtractor:
 
         if not candidate_url.startswith("http://") and not candidate_url.startswith("https://"):
             candidate_url = "https://" + candidate_url
+
+        # Check the homepage too. A robots policy applies to the root URL;
+        # fetching it before consulting robots.txt would bypass an explicit
+        # Disallow: / rule even if every later subpage were checked correctly.
+        if not self.robots.allowed(candidate_url):
+            return self._blocked()
 
         fetch_res = self.client.fetch(candidate_url)
         if fetch_res.blocked_by_budget:
