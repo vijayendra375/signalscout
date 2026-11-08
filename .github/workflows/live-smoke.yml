@@ -1,9 +1,16 @@
 name: SignalScout live 100-company smoke
 
 on:
-  # Live crawls are explicit/manual only. Avoid launching duplicate 100-company
-  # runs for every small code commit while a review branch is being hardened.
   workflow_dispatch:
+  push:
+    branches:
+      - "peak/judge-score-hardening"
+
+# Keep at most one live crawl active for this branch. A newer candidate cancels
+# an older run rather than multiplying requests to public source systems.
+concurrency:
+  group: signalscout-live-smoke
+  cancel-in-progress: true
 
 permissions:
   contents: read
