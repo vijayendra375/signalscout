@@ -5,7 +5,7 @@ import json
 from app.config.settings import settings
 from app.fetching.http_client import FetchResult
 from app.evidence.store import EvidenceStore
-from app.extraction.website import WebsiteExtractor
+from app.extraction.website import WebsiteExtractor, registry_email_website_candidate
 from app.identity.firewall import IdentityDecision
 
 
@@ -560,3 +560,31 @@ def test_oversized_jsonld_input():
     result = extractor.research_website("923609016", "Acme Norge AS", "https://acme.no/", store)
     # Should not crash; may or may not extract claims from oversized JSON
     assert result.pages_crawled >= 1
+
+
+
+def test_registry_email_website_candidate_accepts_custom_domain():
+    assert registry_email_website_candidate("post@acme.no") == "https://acme.no/"
+
+
+def test_registry_email_website_candidate_rejects_public_mail_providers():
+    for email in ("user@gmail.com", "user@outlook.com", "user@yahoo.no", "user@online.no"):
+        assert registry_email_website_candidate(email) is None
+
+
+def test_registry_email_website_candidate_rejects_malformed_addresses():
+    for email in ("", "not-an-email", "@acme.no", "post@localhost", "post@bad..no", "a@b.no@c.no"):
+        assert registry_email_website_candidate(email) is None
+
+
+def test_email_discovered_website_requires_strong_identity_confirmation():
+    # A page on the candidate domain with no company identity is not enough.
+    client = FakeClient({
+        "https://acme.no/": "<html><body>Welcome to a generic landing page.</body></html>"
+    })
+    result = WebsiteExtractor(client).research_website(
+        "923609016", "Acme Norge AS", "https://acme.no/", EvidenceStore(),
+        require_trusted_identity=True,
+    )
+    by = {claim.field: claim for claim in result.claims}
+    assert by["official_website"].value is None
