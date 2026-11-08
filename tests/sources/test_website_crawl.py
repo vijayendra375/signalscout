@@ -588,3 +588,32 @@ def test_email_discovered_website_requires_strong_identity_confirmation():
     )
     by = {claim.field: claim for claim in result.claims}
     assert by["official_website"].value is None
+
+
+
+def test_robots_disallow_homepage_prevents_homepage_request():
+    client = FakeClient(
+        {"https://acme.no/": HOME},
+        robots="User-agent: *\nDisallow: /",
+    )
+    result = WebsiteExtractor(client).research_website(
+        "923609016", "Acme Norge AS", "https://acme.no/", EvidenceStore()
+    )
+    assert "https://acme.no/" not in client.requested
+    assert all(claim.availability.value == "blocked" for claim in result.claims)
+
+
+class RobotsOutageClient(FakeClient):
+    def fetch(self, url, **kwargs):
+        if url.endswith("/robots.txt"):
+            raise OSError("temporary robots.txt network failure")
+        return super().fetch(url, **kwargs)
+
+
+def test_robots_outage_prevents_homepage_request():
+    client = RobotsOutageClient({"https://acme.no/": HOME})
+    result = WebsiteExtractor(client).research_website(
+        "923609016", "Acme Norge AS", "https://acme.no/", EvidenceStore()
+    )
+    assert "https://acme.no/" not in client.requested
+    assert all(claim.availability.value == "blocked" for claim in result.claims)
