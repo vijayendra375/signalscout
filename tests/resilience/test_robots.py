@@ -45,3 +45,19 @@ def test_robots_is_cached_per_origin():
     gate.allowed("https://example.no/a")
     gate.allowed("https://example.no/b")
     assert sum(1 for c in client.calls if c.endswith("/robots.txt")) == 1
+
+
+
+def test_server_error_robots_fails_closed():
+    gate = RobotsGate(FakeClient(robots_status=503, robots_text=""), "SignalScout/1.0")
+    assert gate.allowed("https://example.no/anything") is False
+
+
+class RaisingClient:
+    def fetch(self, url, **kwargs):
+        raise OSError("temporary DNS failure")
+
+
+def test_unreachable_robots_fails_closed():
+    gate = RobotsGate(RaisingClient(), "SignalScout/1.0")
+    assert gate.allowed("https://example.no/anything") is False
