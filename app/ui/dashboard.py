@@ -731,10 +731,16 @@ def generate_dashboard_html(
         else:
             envelopes_data.append(dict(e))  # already a contract dict
     data_json = json.dumps(envelopes_data, ensure_ascii=False)
-    # Escape </script> inside JSON data so it cannot break out of the
-    # surrounding <script> tag in the HTML document. This is a valid JSON
-    # escape (optional solidus escaping) and prevents XSS via data values.
-    data_json = data_json.replace("</script>", "<\\/script>")
+    # Escape HTML-significant characters in embedded JSON. HTML script raw-text
+    # parsing is case-insensitive for </script>, so replacing only the lowercase
+    # spelling is insufficient for untrusted company-controlled strings.
+    # JSON Unicode escapes preserve the parsed value while preventing script-tag
+    # termination and markup injection before JSON.parse() runs in the browser.
+    data_json = (
+        data_json.replace("&", "\\u0026")
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+    )
 
     first = envelopes[0] if envelopes else {}
     if hasattr(first, "run"):

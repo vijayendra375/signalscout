@@ -10,6 +10,7 @@ from typing import Any, Callable, List, Optional
 from app.budget.request_budget import RequestBudget
 from app.budget.tracker import BudgetTracker
 from app.config.settings import settings
+from app.evidence.store import utc_now
 from app.fetching.http_client import SafeHttpClient
 from app.identity.validator import validate_org_number
 from app.output.models import TerminalEnvelope, ErrorRecord, RunMetadata, Operations
@@ -191,11 +192,20 @@ class BatchRunner:
                 env = self.pipeline.research_company(target_org, run_id=run_id)
                 return target_org, env
             except Exception as exc:
-                # Fault isolation for an otherwise valid company. The target is
-                # already a validated identifier, so no placeholder is needed.
+                # Fault isolation for an otherwise valid company. Ensure any
+                # reservation is released even if the pipeline failed before
+                # entering its own cleanup block. RequestBudget completion is
+                # idempotent, so this is safe after an inner finally as well.
+                self.request_budget.complete_company(target_org)
+                failed_at = utc_now()
                 err_env = TerminalEnvelope(
                     organisation_number=target_org,
-                    run=RunMetadata(run_id=run_id, started_at="", completed_at="", terminal_status="failed"),
+                    run=RunMetadata(
+                        run_id=run_id,
+                        started_at=failed_at,
+                        completed_at=utc_now(),
+                        terminal_status="failed",
+                    ),
                     claims=[],
                     evidence=[],
                     changes=[],

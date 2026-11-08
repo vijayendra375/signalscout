@@ -8,7 +8,7 @@ and SHA-256 content hash to every published claim, and emits exactly one
 terminal JSONL envelope per input.
 
 - **Total third-party cost:** $0.00 (no paid APIs, no paid model required).
-- **Zero wrong-company publications:** enforced by an Identity Firewall.
+- **Conservative identity gating:** website claims are held back unless the Identity Firewall accepts the company match.
 - **Honest absence:** missing data is `not_available`, never a fabricated `0`.
 - **Offline-testable:** the test suite makes no network calls and needs no keys.
 
@@ -104,7 +104,34 @@ python -m pytest -q
 The suite is fully offline (mocked HTTP and fixtures) and must not require paid
 access.
 
-## 7. Output contract
+## 7. Submission preflight audit
+
+Before packaging a competition run, validate the exact manifest, output JSONL,
+and machine report. For the included smoke manifest:
+
+```bash
+python scripts/audit_submission.py --input data/smoke_100_companies.jsonl --expected-count 100
+```
+
+For an official run, audit the exact input file Builderr supplies and the
+matching output/report from that same run. Set `--expected-count` to the
+actual number of supplied companies; do not substitute a self-selected list:
+
+```bash
+python scripts/audit_submission.py --input <builderr-input.jsonl> --expected-count N --output out/evaluator.jsonl --report out/evaluator-report.json
+```
+
+Builderr's current challenge page requires a 100-company smoke-test artifact
+and supplies the official evaluation batch itself. Precomputed profiles are
+not a substitute for running the agent on that supplied batch.
+
+The audit checks valid unique organisation numbers, exact input/output order,
+terminal-envelope invariants, claim-to-evidence references, evidence hashes and
+timestamps, and configured request/runtime/cost ceilings. It is an offline
+structural preflight; it does **not** prove recall, source freshness, legal
+permission, or zero wrong-company matches. Those require a live evidence audit.
+
+## 8. Output contract
 
 Each input produces exactly one terminal envelope:
 
@@ -128,7 +155,7 @@ distinct from a source that was not checked (`not_available`).
 See `docs/EVALUATION_CONTRACT.md`, `docs/DATA_MODEL.md` and
 `docs/REQUIREMENTS_TRACEABILITY.md` for the full specification.
 
-## 8. Sources & evidence policy (summary)
+## 9. Sources & evidence policy (summary)
 
 - **Tier 1 — official registry:** Brønnøysundregistrene (Enhetsregisteret,
   Roller, Underenheter, Konsernstruktur, Regnskapsregisteret). JSON is requested
@@ -154,7 +181,7 @@ embedded in pages are ignored. See `docs/PERMITTED_SOURCES.md`,
 | `content_sha256` | SHA-256 of the exact retrieved bytes |
 | `claim_span` | Verbatim excerpt or structured field proving the fact |
 
-## 9. Model / provider
+## 10. Model / provider
 
 The pipeline is **deterministic by default** and requires no model.
 `SIGNALSCOUT_MODEL_PROVIDER=deterministic` (default) does no network I/O. An
@@ -164,7 +191,7 @@ rephrase already-validated facts and is rejected if it introduces any number not
 present in the validated facts. SignalScout never silently switches to a paid
 service.
 
-## 10. Cost
+## 11. Cost
 
 | Component | Provider | Cost per 100 | Cost per 1,000 |
 | :--- | :--- | :--- | :--- |
@@ -176,7 +203,7 @@ service.
 `operations.third_party_cost_usd` is reported as `0.0`; run-level request counts
 and latency percentiles are in the JSON report. See `docs/COST_MODEL.md`.
 
-## 11. Known limitations
+## 12. Known limitations
 
 - Financial figures reflect the currency reported by Regnskapsregisteret (may be
   USD/EUR for some large groups); the currency is emitted alongside the figures.
@@ -186,7 +213,7 @@ and latency percentiles are in the JSON report. See `docs/COST_MODEL.md`.
   heuristics are collected; login-walled job boards are intentionally excluded.
 - The `narrative` field is absent unless an optional model provider is enabled.
 
-## 12. Project layout
+## 13. Project layout
 
 ```
 app/            package (identity, sources, fetching, extraction, evidence,

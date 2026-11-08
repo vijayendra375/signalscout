@@ -1,49 +1,93 @@
-# Official Rules — Builderr Signalpost Hackathon
+# Official Rules — Builderr Signalpost
 
-## 1. Challenge Overview
-- **Challenge Title**: Signalpost Company Intelligence Challenge
-- **Platform**: Builderr (https://builderr.ai/challenges/signalpost)
-- **Primary Goal**: Given a Norwegian organisation number (9 digits), research the company, discover verified public information across official filings, company-owned sources, and permitted external sources, preserve source evidence, detect temporal changes, and emit structured result envelopes.
-- **Universe**: 411,160 Norwegian entities with 2025 annual-account records.
-- **Local Testing**: 100-company smoke test required in the submitted artifact.
-- **Evaluation Mechanism**: Evaluator runs all submissions against the same official frozen company batch (1,000 to 1,100 companies).
+**Source of truth:** https://builderr.ai/challenges/signalpost  
+**Last checked:** 7 November 2026
 
-## 2. Hard Deadlines and Constraints
-- **Builder Hard Submission Deadline**: October 17, 2026, at 9:00 PM IST.
-- **Platform Round 1 Cutoff**: October 21, 2026.
-- **Budget**: ₹0 / $0 required third-party cost.
-- **Zero Fabricated Claims**: Zero wrong-entity publications and zero fabricated financial values are mandatory qualification gates.
+This file records the live challenge page, not the older Unstop listing or earlier round brief. If this document and the challenge page differ, the live challenge page controls.
 
-## 3. Scoring Breakdown (100 Points Total)
-- **Recall and Coverage (50 points)**:
-  - For each information category, coverage is calculated as `70% * (company recall) + 30% * (individual claims recall)` against the union of verified discoveries.
-  - Categories:
-    1. Company record (registry, legal name, address, employee count, NACE code, form)
-    2. Financials (revenue, operating result, net profit, balance sheet assets/equity/debt)
-    3. People and locations (management roles: CEO/daglig leder, board chair/members; operating subunits/workplaces)
-    4. Company website (verified website URL, sitemap, meta descriptions, contact details)
-    5. Hiring and public activity (job postings, careers page, news/announcements, press releases, social profiles)
-- **Precision, Identity & Evidence (30 points)**:
-  - Exact legal identity matching.
-  - Claim-level source attribution, retrieval timestamp, content hash, reporting period.
-  - Zero wrong-company matches.
-- **Synthesis (12 points)**:
-  - Overview, key metrics, verified recent changes, explicit unknowns and uncertainties.
-  - Every substantive claim cited to verified evidence.
-- **User Experience (8 points)**:
-  - Clean, responsive desktop and mobile verification interface.
-  - Inspection of evidence links, reporting periods, and filters.
+## 1. Challenge
 
-## 4. Qualification Requirements
-- **Qualification Threshold**: Overall score of at least 65/100 on an official run.
-- **Batch Completeness Invariant**: Exactly one terminal envelope per input organisation number:
-  $$\text{Count}(\text{inputs}) == \text{Count}(\text{terminal envelopes})$$
-- **Allowed States**: `available`, `not_available`, `blocked`, `not_applicable`, `ambiguous`, `failed`.
-- **Honest Absence**: Never substitute zero for missing values. Missing information must be represented explicitly.
-- **Idempotency**: Repeated runs on identical source snapshots must produce zero false changes and zero duplicate records.
+Build an agent that accepts a Norwegian organisation number, finds public company facts, attributes each fact to its correct company, links sources and retrieval dates, marks missing information honestly, and refreshes profiles to detect changes.
 
-## 5. Permitted Sources & Legal Compliance
-- Official registers: Brønnøysundregistrene (Enhetsregisteret, Regnskapsregisteret, Roller, Underenheter, Konsernstruktur).
-- Company-controlled sites: Verified homepage, about, contact, leadership, jobs, news.
-- Permitted external sources: Public APIs, lawful search discovery, RSS feeds, open company directories conforming to robots.txt and terms of service.
-- Prohibited: Scraped unauthorized closed platforms, CAPTCHA bypass, credential theft, private competitor work.
+The published universe contains 411,160 eligible Norwegian companies with 2025 annual-account records.
+
+## 2. Current entry and revision rules
+
+- The challenge page currently says entries and revisions remain open through **16 November 2026**.
+- Submit the agent, a **100-company smoke-test result or run report**, repository link, exact commit hash, one-command run instruction, model/API/licence details, expected official-run cost, and contact details.
+- Builderr supplies the official company batch. **Do not submit a self-selected company manifest or precomputed profiles as a substitute for the agent.**
+- The public company list may be used for additional scale testing, including 1,000+ companies.
+- The challenge page states one initial version plus up to four revisions.
+- The official batch is shared across eligible entries and may grow (the page gives 1,000 to 1,100 as an example). The agent must process every supplied company and return one terminal result per input.
+
+## 3. Scoring
+
+| Category | Points |
+| :--- | ---: |
+| Recall and coverage | 50 |
+| Precision and evidence | 30 |
+| Synthesis | 12 |
+| User experience | 8 |
+| **Total** | **100** |
+
+### Recall and coverage (50)
+
+The challenge page describes a weighted recall measure for each information type:
+
+- 70%: the proportion of companies in the checked collection for which the agent found relevant information.
+- 30%: the proportion of checked facts the agent found.
+
+The collection is assembled from submissions and Builderr's own crawlers, with duplicates and wrong-company findings removed. It is not a claim that every fact on the internet has been discovered.
+
+The five information categories used by this project are company record, financials, people and locations, company website, and hiring/public activity. The exact checked facts and their weights are controlled by the evaluator.
+
+### Precision and evidence (30)
+
+Facts must belong to the correct legal entity and have a valid source and date. Unsupported facts lose points. A material wrong-company publication blocks qualification.
+
+### Synthesis (12)
+
+The profile should explain what the company does, what changed, and what remains unknown, with sources for substantive conclusions.
+
+### User experience (8)
+
+Users must be able to find, compare, and verify information on desktop and mobile.
+
+## 4. Qualification and integrity
+
+- At least **65/100** on an official run.
+- The current challenge page does not state separate category minimums.
+- Return exactly one terminal result for every supplied company, including when facts are missing or blocked.
+- Preserve source, retrieval date, and reporting period for every relevant claim.
+- Repeated runs must be idempotent: no duplicate records or false changes from the same source snapshot.
+- Never replace missing values with zero.
+- A material wrong-company match is a qualification blocker.
+
+Allowed result states: `available`, `not_available`, `blocked`, `not_applicable`, `ambiguous`, and `failed`.
+
+## 5. Runtime and cost limits
+
+The live challenge page says each official run has a fixed time and resource budget and that a small external API budget is available. **The public page checked on 7 November 2026 does not expose the exact numeric runtime, request, or dollar caps.** Do not present older figures as current official limits without checking the latest technical evaluation contract or confirming with Builderr.
+
+SignalScout's local defaults remain conservative/configurable. Its deterministic path uses no paid model and reports $0 third-party API cost. Any optional model/API use must be declared and reproducible by the evaluator.
+
+## 6. Source and security requirements
+
+- Use permitted public sources and respect source terms and robots policies.
+- Keep company identity matching conservative.
+- Preserve verifiable source URLs, retrieval timestamps, hashes, and claim spans.
+- Do not fabricate facts, financial values, sources, dates, or benchmark results.
+- Do not use credentials tied to a personal account if the evaluator cannot reproduce the run.
+- Keep secrets out of the repository.
+
+## 7. Operational submission checklist
+
+1. Clean-clone the exact commit.
+2. Install only declared dependencies.
+3. Run the single documented command.
+4. Run the 100-company smoke test and retain its report/output.
+5. Confirm one terminal envelope per input and inspect claim/evidence integrity.
+6. Declare model/API use, licences, and expected cost.
+7. Submit the repository, exact commit, command, smoke-test artifact, and contact details to the destination shown on the challenge page.
+
+The smoke test proves basic execution and completeness; it is not the official score. The official evaluator uses its supplied batch.

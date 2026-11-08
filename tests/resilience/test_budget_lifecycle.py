@@ -119,3 +119,16 @@ def test_global_ceiling_under_concurrent_fair_share():
     assert total_granted <= 20
     assert total_granted + total_denied == 8 * 5
     assert budget.snapshot().global_used == total_granted
+
+
+def test_company_completion_is_idempotent():
+    """A fallback cleanup must not double-count a company already completed."""
+    budget = RequestBudget(global_limit=10, per_company_limit=10, deadline_seconds=None)
+    budget.set_total_companies(1)
+    budget.start_company("org-a")
+    budget.complete_company("org-a")
+    budget.complete_company("org-a")
+
+    assert budget.completed_companies == 1
+    assert budget.snapshot().global_used == 0
+    budget.set_total_companies(1)

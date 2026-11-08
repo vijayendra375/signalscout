@@ -13,8 +13,9 @@ from app.fetching.http_client import SafeHttpClient
 class RobotsGate:
     """Fetches and caches robots.txt policies, and answers crawl-permission queries.
 
-    A missing robots.txt is treated as permissive (standard convention); an
-    unreachable robots.txt fails closed for non-homepage paths to stay lawful.
+    A missing robots.txt (404/410) is treated as having no published policy.
+    Explicit disallow rules and robots retrieval failures fail closed for every
+    URL, including the homepage.
     """
 
     def __init__(self, client: SafeHttpClient, user_agent: str) -> None:
@@ -41,14 +42,21 @@ class RobotsGate:
                 parser = RobotFileParser()
                 parser.set_url(self._robots_url(url))
                 parser.parse(res.text.splitlines())
-            elif res.status_code in {401, 403}:
-                parser = RobotFileParser()
-                parser.disallow_all = True
-            else:
-                # 404 or other: no published policy.
+            elif res.status_code in {404, 410}:
+                # No published robots policy: ordinary public crawl convention.
                 parser = None
+            else:
+                # 401/403, server errors, unexpected statuses and empty 200
+                # responses fail closed. A temporary robots outage must never
+                # silently grant permission to crawl the target page.
+                parser = RobotFileParser()
+                parser.set_url(self._robots_url(url))
+                parser.disallow_all = True
         except Exception:
-            parser = None
+            # Network/DNS/TLS failures are not evidence of permission.
+            parser = RobotFileParser()
+            parser.set_url(self._robots_url(url))
+            parser.disallow_all = True
 
         with self._lock:
             self._cache[origin] = parser
@@ -59,10 +67,10 @@ class RobotsGate:
         try:
             parser = self._parser_for(url)
         except Exception:
-            parser = None
+            return False
         if parser is None:
             return True
         try:
             return parser.can_fetch(self.user_agent, url)
         except Exception:
-            return True
+            return False

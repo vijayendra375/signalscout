@@ -11,12 +11,10 @@ from app.output.models import Claim
 from app.verification.validator import create_claim_record
 
 
-CAREER_PATTERN = re.compile(r"\b(karriere|careers|jobs|jobbe hos|ledige[-_ ]stillinger|stilling|vacanc)\b", re.I)
 HIRING_TEXT_PATTERN = re.compile(
     r"\b(vi sok(er|jer)|vi ser etter|bli en del av|ledige stillinger|we are hiring|join our team|apply now|soknadsfrist)\b",
     re.I,
 )
-NEWS_PATTERN = re.compile(r"\b(nyheter|news|press|presse|aktuelt|announcement)\b", re.I)
 
 
 def _iter_structured(parsed: ParsedHtml) -> List[dict[str, Any]]:
@@ -41,7 +39,6 @@ def _is_job_posting_expired(valid_through: Optional[str]) -> bool:
     if not valid_through or not isinstance(valid_through, str):
         return False
     try:
-        # ISO 8601 parsing: handle trailing Z and timezone offsets
         dt_str = valid_through.strip()
         if dt_str.endswith("Z"):
             dt_str = dt_str[:-1] + "+00:00"
@@ -61,8 +58,13 @@ def _extract_job_location(job_loc: Any) -> Optional[str]:
         addr = job_loc.get("address")
         if isinstance(addr, dict):
             parts = []
-            for key in ("streetAddress", "addressLocality", "addressRegion",
-                        "postalCode", "addressCountry"):
+            for key in (
+                "streetAddress",
+                "addressLocality",
+                "addressRegion",
+                "postalCode",
+                "addressCountry",
+            ):
                 val = addr.get(key)
                 if isinstance(val, str) and val.strip():
                     parts.append(val.strip())
@@ -87,12 +89,12 @@ def _extract_hiring_organization(job_item: dict) -> Optional[str]:
 def extract_hiring_and_activity(
     pages: Optional[List[Tuple[ParsedHtml, Optional[str]]]],
 ) -> List[Claim]:
-    """Extract Hiring and Public Activity claims across one or more verified pages.
+    """Extract hiring and public-activity claims across verified pages.
 
-    Every published claim is linked to the evidence record(s) of the page(s) that
-    actually contained the signal. When a site was fetched but contained no hiring
-    or activity signals this returns ``available`` with an empty list (a checked
-    source with zero postings), never a fabricated value.
+    A careers link or a page whose URL contains "career" is navigation evidence,
+    not proof that the company is actively hiring. Positive hiring status requires
+    a non-expired structured JobPosting or explicit hiring language in page text.
+    Every positive claim references the page evidence that contained the signal.
     """
     if not pages:
         return [
@@ -110,34 +112,30 @@ def extract_hiring_and_activity(
     seen_news = set()
 
     for parsed, evidence_id in pages:
-        eids = [evidence_id] if evidence_id else []
-
-        # 1. Structured JobPosting in JSON-LD
+        # 1. Structured JobPosting and public-activity JSON-LD.
         for item in _iter_structured(parsed):
             schema_type = item.get("@type")
             types = schema_type if isinstance(schema_type, list) else [schema_type]
             if "JobPosting" in types:
-                # Skip expired postings
-                valid_through = item.get("validThrough")
-                if _is_job_posting_expired(valid_through):
+                if _is_job_posting_expired(item.get("validThrough")):
                     continue
                 title = item.get("title") or item.get("name") or "Untitled Role"
                 key = (title, parsed.url)
                 if key not in seen_jobs:
                     seen_jobs.add(key)
-                    location = _extract_job_location(item.get("jobLocation"))
-                    hiring_org = _extract_hiring_organization(item)
-                    job_postings.append({
-                        "title": title,
-                        "description": item.get("description"),
-                        "date_posted": item.get("datePosted"),
-                        "valid_through": item.get("validThrough"),
-                        "employment_type": item.get("employmentType"),
-                        "hiring_organization": hiring_org,
-                        "location": location,
-                        "source": parsed.url,
-                        "evidence_id": evidence_id,
-                    })
+                    job_postings.append(
+                        {
+                            "title": title,
+                            "description": item.get("description"),
+                            "date_posted": item.get("datePosted"),
+                            "valid_through": item.get("validThrough"),
+                            "employment_type": item.get("employmentType"),
+                            "hiring_organization": _extract_hiring_organization(item),
+                            "location": _extract_job_location(item.get("jobLocation")),
+                            "source": parsed.url,
+                            "evidence_id": evidence_id,
+                        }
+                    )
                     if evidence_id and evidence_id not in hiring_evidence_ids:
                         hiring_evidence_ids.append(evidence_id)
 
@@ -147,47 +145,50 @@ def extract_hiring_and_activity(
                     key = (headline, parsed.url)
                     if key not in seen_news:
                         seen_news.add(key)
-                        activities.append({
-                            "category": "news_announcement",
-                            "title": headline,
-                            "date": item.get("datePublished") or item.get("dateModified"),
-                            "source": parsed.url,
-                            "evidence_id": evidence_id,
-                        })
+                        activities.append(
+                            {
+                                "category": "news_announcement",
+                                "title": headline,
+                                "date": item.get("datePublished") or item.get("dateModified"),
+                                "source": parsed.url,
+                                "evidence_id": evidence_id,
+                            }
+                        )
                         if evidence_id and evidence_id not in activity_evidence_ids:
                             activity_evidence_ids.append(evidence_id)
 
-        # 2. Text / link heuristics for careers
-        has_career_link = any(CAREER_PATTERN.search(link) for link in parsed.internal_links)
-        has_career_text = bool(HIRING_TEXT_PATTERN.search(parsed.clean_text))
-        has_career_url = bool(CAREER_PATTERN.search(parsed.url))
-        if has_career_link or has_career_text or has_career_url:
+        # 2. Explicit hiring language is a positive signal. Career navigation
+        # links and career-page URL slugs alone are deliberately not sufficient.
+        if HIRING_TEXT_PATTERN.search(parsed.clean_text):
             if evidence_id and evidence_id not in hiring_evidence_ids:
                 hiring_evidence_ids.append(evidence_id)
 
     is_hiring = bool(job_postings) or bool(hiring_evidence_ids)
 
-    # Evidence ids for every page actually checked, so that an "available but
-    # empty" observation still satisfies the claim-to-evidence contract.
+    # A checked page with no positive signal is still evidence of an observed
+    # empty result; it is distinct from a source that was never checked.
     checked_evidence_ids: List[str] = []
     for _, ev_id in pages:
         if ev_id and ev_id not in checked_evidence_ids:
             checked_evidence_ids.append(ev_id)
 
-    claims: List[Claim] = []
-    claims.append(create_claim_record(
-        "hiring_active", is_hiring,
-        hiring_evidence_ids if is_hiring else checked_evidence_ids,
-        observed=True,
-    ))
-    claims.append(create_claim_record(
-        "job_postings", job_postings,
-        hiring_evidence_ids if job_postings else checked_evidence_ids,
-        observed=True,
-    ))
-    claims.append(create_claim_record(
-        "public_activities", activities,
-        activity_evidence_ids if activities else checked_evidence_ids,
-        observed=True,
-    ))
-    return claims
+    return [
+        create_claim_record(
+            "hiring_active",
+            is_hiring,
+            hiring_evidence_ids if is_hiring else checked_evidence_ids,
+            observed=True,
+        ),
+        create_claim_record(
+            "job_postings",
+            job_postings,
+            hiring_evidence_ids if job_postings else checked_evidence_ids,
+            observed=True,
+        ),
+        create_claim_record(
+            "public_activities",
+            activities,
+            activity_evidence_ids if activities else checked_evidence_ids,
+            observed=True,
+        ),
+    ]

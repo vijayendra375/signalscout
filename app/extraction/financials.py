@@ -15,6 +15,14 @@ def _get_nested(data: Any, *keys: str) -> Any:
     return data
 
 
+def _first_present(*values: Any) -> Any:
+    """Return the first value that is present, preserving valid numeric zero."""
+    for value in values:
+        if value is not None and value != "":
+            return value
+    return None
+
+
 def extract_financials(
     raw_accounts: Optional[list[dict[str, Any]]],
     evidence_id: Optional[str],
@@ -50,9 +58,9 @@ def extract_financials(
         currency = item.get("valuta") or "NOK"
         
         # Revenue
-        rev = (
-            _get_nested(item, "resultatregnskapResultat", "driftsresultat", "driftsinntekter", "sumDriftsinntekter")
-            or _get_nested(item, "resultatregnskapResultat", "driftsresultat", "driftsinntekter", "salgsinntekter")
+        rev = _first_present(
+            _get_nested(item, "resultatregnskapResultat", "driftsresultat", "driftsinntekter", "sumDriftsinntekter"),
+            _get_nested(item, "resultatregnskapResultat", "driftsresultat", "driftsinntekter", "salgsinntekter"),
         )
         op_res = _get_nested(item, "resultatregnskapResultat", "driftsresultat", "driftsresultat")
         ann_res = _get_nested(item, "resultatregnskapResultat", "aarsresultat")

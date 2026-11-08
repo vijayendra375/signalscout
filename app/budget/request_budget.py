@@ -87,8 +87,12 @@ class RequestBudget:
     def complete_company(self, org: str) -> None:
         """Release this company's unused reservation and mark it complete."""
         with self._lock:
+            was_active = org in self._allocation
             self._allocation.pop(org, None)
-            self._completed_companies += 1
+            if was_active:
+                self._completed_companies += 1
+        # Idempotent: a batch-level exception guard may safely ensure cleanup
+        # even when the pipeline's own finally block already completed it.
         self.end_company()
 
     def _current_org(self) -> Optional[str]:

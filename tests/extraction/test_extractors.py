@@ -292,3 +292,30 @@ def test_group_forced_availability_is_isolated():
     assert by["managing_director"].availability == AvailabilityState.AVAILABLE
     assert by["workplaces_count"].availability == AvailabilityState.AVAILABLE
     assert by["parent_entity"].availability == AvailabilityState.BLOCKED
+
+
+
+def test_financials_preserves_zero_total_revenue_over_fallback():
+    raw_accounts = [{
+        "aar": 2024,
+        "valuta": "NOK",
+        "regnskapsperiode": {"fraDato": "2024-01-01", "tilDato": "2024-12-31"},
+        "resultatregnskapResultat": {
+            "driftsresultat": {
+                "driftsinntekter": {
+                    "sumDriftsinntekter": 0,
+                    "salgsinntekter": 125,
+                },
+                "driftsresultat": 0,
+            },
+            "aarsresultat": 0,
+        },
+    }]
+
+    claims = extract_financials(raw_accounts, "ev-zero")
+    by = {claim.field: claim for claim in claims}
+
+    assert by["latest_revenue"].value == 0.0
+    assert by["latest_revenue"].availability == AvailabilityState.AVAILABLE
+    assert by["latest_operating_result"].value == 0.0
+    assert by["latest_annual_result"].value == 0.0

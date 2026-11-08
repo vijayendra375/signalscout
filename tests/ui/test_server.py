@@ -282,7 +282,7 @@ def test_budget_status_endpoint_shape(server_with_mock):
 def test_dashboard_html_escapes_company_name(server_with_mock):
     """Company names with HTML special characters are escaped in the dashboard."""
     server, _ = server_with_mock
-    env = _make_envelope("989061593", "<script>alert('xss')</script> & Co.")
+    env = _make_envelope("989061593", "<script>alert('xss')</ScRiPt> & Co.")
     with server._lock:
         server.looked_up["989061593"] = env
 
@@ -294,7 +294,7 @@ def test_dashboard_html_escapes_company_name(server_with_mock):
         html = tmp_path.read_text(encoding="utf-8")
         # The company name contains </script>; in the embedded JSON it must
         # be escaped as <\/script> so it cannot break out of the <script> tag.
-        assert "<\\/script>" in html, "Company name </script> not escaped in JSON data"
+        assert "\\u003c/ScRiPt\\u003e" in html, "Mixed-case script terminator not escaped in JSON data"
         # The client-side esc() function handles HTML entity rendering at
         # display time (verified by the esc() implementation in the template).
     finally:
@@ -411,7 +411,7 @@ def test_dashboard_all_availability_badge_classes_in_css(server_with_mock):
 def test_dashboard_escapes_html_sensitive_company_data(server_with_mock):
     """Company data with HTML special characters is escaped in embedded JSON data."""
     server, _ = server_with_mock
-    env = _make_envelope("989061593", "<script>alert('xss')</script> & Co.")
+    env = _make_envelope("989061593", "<script>alert('xss')</ScRiPt> & Co.")
     with server._lock:
         server.looked_up["989061593"] = env
 
@@ -423,7 +423,7 @@ def test_dashboard_escapes_html_sensitive_company_data(server_with_mock):
         html = tmp_path.read_text(encoding="utf-8")
 
         # The company name should be escaped in the embedded JSON (</script> as <\/script>)
-        assert "<\\/script>" in html, "Company name with </script> not escaped in JSON data"
+        assert "\\u003c/ScRiPt\\u003e" in html, "Mixed-case script terminator not escaped in JSON data"
     finally:
         try:
             tmp_path.unlink(missing_ok=True)
