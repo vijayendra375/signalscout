@@ -549,3 +549,29 @@ def test_pipeline_exception_completes_exactly_once():
         raise AssertionError("expected RuntimeError to propagate")
 
     assert budget.completed_companies == 1
+
+
+
+def test_pipeline_discovers_website_from_registry_email_with_identity_confirmation():
+    entity = dict(ENTITY)
+    entity["hjemmeside"] = None
+    entity["epostadresse"] = "post@testfirma.no"
+    homepage = (
+        "<html><head><title>Testfirma AS</title></head><body>"
+        "Testfirma AS org.nr 989 061 593. "
+        "<a href='mailto:post@testfirma.no'>post@testfirma.no</a>"
+        "</body></html>"
+    )
+    client = FakeClient(pages={"https://testfirma.no/": homepage}, entity=entity)
+    pipeline = CompanyPipeline(http_client=client, db=None)
+    env = pipeline.research_company(ORG, run_id="email-domain-discovery")
+    by = {claim.field: claim for claim in env.claims}
+
+    assert by["official_website"].value == "https://testfirma.no/"
+    assert by["official_website"].availability.value == "available"
+    # The official Brreg record is retained as provenance for the discovery hint.
+    entity_evidence_id = next(
+        evidence.id for evidence in env.evidence
+        if evidence.source_url.endswith("/enheter/" + ORG)
+    )
+    assert entity_evidence_id in by["official_website"].evidence_ids
